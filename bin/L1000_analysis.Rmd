@@ -1,0 +1,327 @@
+---
+title: "MCC signature genes incorporate with L1000 perturbagens"
+author: "Jiawen Yang"
+date: "2023-06-25"
+output: 
+  html_document:
+    theme: simplex
+    #code_folding: hide
+    toc: true
+    number_sections: true
+    toc_float: true
+---
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 12px;
+  }
+td {  /* Table  */
+  font-size: 12px;
+}
+h1.title {
+  font-size: 32px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 24px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 12px;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r clean environment, include=FALSE, echo = F}
+rm(list = ls())
+gc()
+```
+
+# Loading libraries
+```{r load library, include=TRUE, echo=TRUE, warning=F, message=F}
+library(cmapR)
+library(ggplot2)
+library(ggrepel)
+library(dplyr)
+library(circlize)
+library(RColorBrewer)
+library(jaccard)
+```
+
+# Importing data
+```{r import data, include=TRUE, echo=TRUE}
+#load L1000 files===============
+DIR<-c("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/l1000/")
+#FILES<-list.files(path = paste0(DIR, "WNT_inhibitor"), pattern = "*_info.txt", full.names = T, recursive = T)
+FILES<-list.files(path = paste0(DIR, "WNT_related_conditions"), pattern = "*_info.txt", full.names = T, recursive = T)
+gene_info<-read.table(file = paste0(DIR, "GSE92742_Broad_LINCS_gene_info.txt"), sep = "\t", quote = "", header = T)
+cell_info<-read.delim2(file = paste0(DIR, "GSE92742_Broad_LINCS_cell_info.txt"), sep = "\t", quote = "", header = T)
+colnames<-read.table(file = paste0(DIR, "colnames.txt"))
+#load gse39612 data set ====================
+gse39612_renormalized_edat<-readRDS(file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/renormalized_samples_edat_no_celllines.RDS")
+
+#load NE marker gene list ================
+neuroendocrine_markers<-c("ENO2", "NEFM", "NEFH", "NMB", "HES6", "SOX2", "ATOH1", "CHGA")
+```
+
+# Performing Pearson Correlation analysis with GSE39612 data: correlat the expression value of all genes with NE marker genes
+```{r NE_score_genes, include=TRUE, eval = T, echo=TRUE}
+#gse39612_cor<-cor(as.matrix(t(gse39612_renormalized_edat)), method = "pearson")
+gse39612_cor<-readRDS(file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/gse39612_cor.RDS")
+#saveRDS(gse39612_cor, file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/gse39612_cor.RDS")
+
+gse39612_NE_cor<-gse39612_cor[neuroendocrine_markers,]
+NE_score<-apply(t(gse39612_NE_cor), 1, sum)
+NE_score_sorted<-NE_score[order(NE_score, decreasing = T)]
+```
+
+# Overlapping the NE1000 genes with perturbed top 1000 genes in LINCS L1000 data under different perturbagens
+```{r L1000 top genes overlap with MCC NE score genes (total 1000 genes ranked top), include=TRUE, fig.height=20, fig.width=24, warning=F, message=F}
+n=500
+gse39612_high_NE_score_genes<-names(NE_score_sorted[1:n])
+gse39612_low_NE_score_genes<-names(rev(NE_score_sorted)[1:n])
+
+annotate_genes<-list()
+for (i in 1:length(FILES)){
+  #RDS_FILES<-list.files(path = paste0(DIR, "WNT_inhibitor"), pattern = "*.RDS", full.names = T, recursive = T)
+  RDS_FILES<-list.files(path = paste0(DIR, "WNT_related_conditions"), pattern = "*.RDS", full.names = T, recursive = T)
+  level4_all<-readRDS(RDS_FILES[i])
+  drug_lable<-strsplit(strsplit(RDS_FILES[i], "/")[[1]][10], "_")[[1]][1]
+
+  gene_info$pr_gene_id <- as.character(gene_info$pr_gene_id)
+  level4_matrix<-mat(level4_all)
+  level4_zscore<-as.data.frame(level4_matrix)
+  level4_zscore$pr_gene_id<-rownames(level4_zscore)
+  level4_zscore<-left_join(level4_zscore, gene_info, by = "pr_gene_id")
+  rownames(level4_zscore)<-level4_zscore$pr_gene_symbol
+  level4_zscore_analysis<-level4_zscore[, 1:(ncol(level4_zscore)-5)]
+  level4_zscore_analysis$mean<-apply(level4_zscore_analysis, 1, mean)
+  level4_zscore_analysis$gene<-rownames(level4_zscore_analysis)
+
+  #Organize l1000 level4 sample info data ============================
+  samples_info<-read.table(file = FILES[i] ,sep = "\t", header = F)
+  colnames(samples_info)<-colnames
+  group_all=samples_info[,c("sample_id" ,"pert_itime", "pert_idose", "cell_iname" , "project_code")]
+  rownames(group_all)<-samples_info$sample_id
+  group_all<-group_all[colnames(level4_zscore),]
+  group_all<-na.omit(group_all)
+
+  cell_info_df<-cell_info[,c("base_cell_id", "primary_site", "subtype", "original_growth_pattern")]
+  colnames(cell_info_df)<-c("cell_iname","primary_site", "subtype", "original_growth_pattern")
+
+  group_all_new<-left_join(group_all, cell_info_df, by = "cell_iname", keep = F)
+  group_all<-group_all_new[!duplicated(group_all_new$sample_id),]
+  group_all$dosage<-unlist(lapply(group_all$pert_idose, function(x) strsplit(x, " ")[[1]][1]))
+  group_all<-group_all[group_all$dosage <= 10,]
+  
+  L1000_zscored_fc<-level4_zscore_analysis
+  L1000_sample_info<-group_all
+
+  all_fc_edat<-L1000_zscored_fc #total 12328 genes
+  df<-all_fc_edat
+
+  L1000_top_downregulated_genes_all<-all_fc_edat[order(all_fc_edat$mean, decreasing = F),][1:n,]
+  L1000_top_upregulated_genes_all<-all_fc_edat[order(all_fc_edat$mean, decreasing = T),][1:n,]
+  
+  annotate_down<-intersect(gse39612_high_NE_score_genes, rownames(L1000_top_downregulated_genes_all))
+  annotate_up<-intersect(gse39612_low_NE_score_genes, rownames(L1000_top_upregulated_genes_all))
+  
+  annotate_gene_set<-c(annotate_down, annotate_down)
+  annotate_genes[[drug_lable]]<-annotate_gene_set
+
+  print(annotate_gene_set)
+  
+  annotate_down_df<-all_fc_edat[annotate_down,]
+  annotate_up_df<-all_fc_edat[annotate_up,]
+  
+  #Calculate jaccard similarity coefficient =========
+  NE_set = data.frame(genes = c(gse39612_high_NE_score_genes, gse39612_low_NE_score_genes), binary = rep(0, length(c(gse39612_high_NE_score_genes, gse39612_low_NE_score_genes))))
+  NE_set[which(NE_set$genes %in% annotate_gene_set == TRUE), "binary"]<-1
+  
+  L1000_set = data.frame(genes = c(rownames(L1000_top_downregulated_genes_all), rownames(L1000_top_upregulated_genes_all)), 
+                         binary = rep(0,length(c(rownames(L1000_top_downregulated_genes_all), rownames(L1000_top_upregulated_genes_all)))))
+  L1000_set[which(L1000_set$genes %in% annotate_gene_set == TRUE), "binary"]<-1
+  
+  jaccard_test<-jaccard.test(NE_set$binary, L1000_set$binary, method = "bootstrap")
+ 
+  print(drug_lable)
+  print("Performing jaccard test with 'bootstrap' method")
+  print(jaccard_test$pvalue)
+
+  #plot for each drug ==========
+  df<-na.omit(df)
+
+  p1 = ggplot(data = df, 
+              aes(x=reorder(gene, mean), y=mean),
+              label = gene)+
+    geom_point(color = "grey75", 
+               size = 5
+    )+
+    geom_point(data = annotate_down_df , # New layer containing data subset il_genes       
+               size = 3,
+               shape = 21,
+               fill = "firebrick",
+               colour = "black")+
+    geom_text_repel(data = annotate_down_df, aes(label = gene), size = 6, fontface = "bold", colour = "black", force = 3, max.overlaps = 70) +
+    geom_point(data = annotate_up_df , # New layer containing data subset il_genes       
+               size = 3,
+               shape = 21,
+               fill = "blue",
+               colour = "black")+
+    geom_text_repel(data = annotate_up_df, aes(label = gene), size = 6, fontface = "bold", colour = "black", force = 3, max.overlaps = 70) +
+    ylab(paste0("Mean of Z-scored fold change of all cell lines"))+
+    xlab("Genes")+
+    scale_x_discrete(expand = c(0.15,0))+
+    lims(y = c(-7.5, 5))+
+    ggtitle(paste0("L1000 top dysregulated genes overlapping with GSE39612 MCC NE_1000 genes \n -", drug_lable))+
+    theme(axis.text.x = element_blank(),
+          plot.title = element_text(size = 30, face = "bold"),
+          panel.background = element_blank(),
+          axis.line.y = element_line(),
+          #plot.margin = unit(c(1,1,1,1), "cm"),
+          axis.title.x = element_text(size=30, face="bold"),
+          axis.title.y = element_text(size=30, face="bold"),
+          axis.text.y = element_text(size=30, face="bold"))
+  #pdf(file = paste0("/xdisk/mpadi/jiawenyang/result/merkel_cell/pp_in_mcc_paper/figure/L1000_top_ranked_overlapped_gene_in_", drug_lable,".pdf" ), height = 20, width = 24)
+  plot(p1)
+  #dev.off()
+}
+```
+
+# Performing pairwise intersection on overlapped genes in different Wnt-perturbing conditions
+
+## Organizing data
+```{r , include=TRUE, echo=TRUE, warning=F, message=F}
+fset<-unique(unlist(annotate_genes))
+
+#pairwise intersection
+conditions<-unlist(lapply(RDS_FILES, function(x) strsplit(strsplit(x, "/")[[1]][10], "_")[[1]][1]))
+combs<-combn(length(conditions), 2)
+summary<-data.frame()
+for (i in 1:ncol(combs)){
+  pair_id<-combs[,i]
+  set1<-annotate_genes[[pair_id[1]]]
+  set2<-annotate_genes[[pair_id[2]]]
+  set1id<-conditions[pair_id[1]]
+  set2id<-conditions[pair_id[2]]
+  int<-intersect(set1, set2)
+  df<-data.frame(set1 = set1id, set2 = set2id, intersection = paste(int, collapse = "/"), gene_count = length(int))
+  #df<-data.frame(set1 = set1id, set2 = set2id, intersection = int, gene_count = length(int))
+  summary<-rbind(summary, df)
+}
+summary$set1<-as.factor(summary$set1)
+summary$set2<-as.factor(summary$set2)
+```
+
+## Generating circos plot from the pariwise intersection
+```{r generate circos plot from the pariwise intersection, include=TRUE, echo=TRUE, fig.height = 24, fig.width = 22, warning=F, message=F}
+### You need several libraries
+library(circlize)
+library(migest)
+library(dplyr)
+pdf(file = "/xdisk/mpadi/jiawenyang/result/merkel_cell/pp_in_mcc_paper/figure/L1000_top_ranked_overlaped_genes_in_Wnt_related_conditions_circos_plot.pdf", height =24 , width =22)
+#pdf(file = "/xdisk/mpadi/jiawenyang/result/merkel_cell/pp_in_mcc_paper/figure/L1000_top_ranked_overlaped_genes_in_Wnt_inhibitors_circos_plot.pdf", height =20 , width =16)
+
+### Make data
+#colors<-brewer.pal(n = length(conditions), "Paired")
+colors<-brewer.pal(n = length(conditions), "Set2")
+df1_new<-data.frame(order = 1:length(conditions), 
+                    conditions = conditions,
+                    rcol = colors,
+                    lcol = paste0(colors, "65"),
+                    xmin = rep(0, length(conditions)),
+                    xmax = unlist(lapply(annotate_genes, function(x) length(x))))
+                    
+### Plot sectors (outer part)
+par(mar=rep(0,4))
+circos.clear()
+ 
+### Basic circos graphic parameters
+circos.par(cell.padding=c(0,0,0,0), track.margin=c(0,0.15), start.degree = 90, gap.degree = 4) 
+ 
+### Sector details
+circos.initialize(factors = df1_new$conditions, xlim = cbind(df1_new$xmin, df1_new$xmax)) 
+ 
+### Plot sectors
+circos.trackPlotRegion(ylim = c(0, 1), factors = df1_new$conditions, track.height=0.1,
+                      #panel.fun for each sector
+                      panel.fun = function(x, y) {
+                      #select details of current sector
+                      name = get.cell.meta.data("sector.index")
+                      i = get.cell.meta.data("sector.numeric.index")
+                      xlim = get.cell.meta.data("xlim")
+                      ylim = get.cell.meta.data("ylim")
+ 
+                      #text direction (dd) and adjusmtents (aa)
+                      theta = circlize(mean(xlim), 1.3)[1, 1] %% 360
+                      dd <- ifelse(theta < 90 || theta > 270, "clockwise", "reverse.clockwise")
+                      aa = c(1, 0.5)
+                      if(theta < 90 || theta > 270)  aa = c(0, 0.5)
+ 
+                      #plot conditions labels
+                      circos.text(x=mean(xlim), y=1.7, labels=name, facing = dd, cex=1.7, font=2, adj = aa)
+ 
+                      #plot main sector
+                      circos.rect(xleft=xlim[1], ybottom=ylim[1], xright=xlim[2], ytop=ylim[2], 
+                                  col = df1_new$rcol[i], border=df1_new$rcol[i])
+ 
+                      #white line all the way around
+                      #circos.rect(xleft=xlim[1], ybottom=0.3, xright=xlim[2], ytop=0.32, col = "white", border = "white")
+ 
+                      #plot axis
+                      circos.axis(labels.cex=1.5, direction = "outside", major.at=seq(from=0,to=floor(df1_new$xmax)[i], by = floor(df1_new$xmax)[i])
+                                  ,minor.ticks=0
+                                  )
+                    })
+
+### Plot links (inner part)
+### Add sum values to df1, marking the x-position of the first links
+### out (sum1) and in (sum2). Updated for further links in loop below.
+df1_new$sum1 <- df1_new$xmax
+df1_new$sum2 <- numeric(nrow(df1_new))
+df1_new$genes <- "/NA"
+#df1_new$conditions <- factor(df1_new$conditions, levels = df1_new$conditions)
+### Create a data.frame of the flow matrix sorted by flow size, to allow largest flow plotted first
+df2_new<-summary[, c("set1", "set2", "gene_count", "intersection")]
+df2_new<-arrange(df2_new, desc(gene_count))
+
+### Plot links
+for(k in 1:nrow(df2_new)){
+    #i,j reference of flow matrix
+    i<-match(df2_new$set1[k],df1_new$conditions)
+    j<-match(df2_new$set2[k],df1_new$conditions)
+    genes<-strsplit(subset(df2_new, set1 == df1_new$conditions[i] & set2 == df1_new$conditions[j])[,"intersection"], "/")[[1]]
+#plot link
+circos.link(sector.index1=df1_new$conditions[i], 
+            point1=c(df1_new$sum2[i]-length(intersect(genes, strsplit(df1_new$genes[i], "/")[[1]])), df1_new$sum2[i] + df2_new$gene_count[k]),
+            sector.index2=df1_new$conditions[j],
+            point2=c(df1_new$sum2[j]-length(intersect(genes, strsplit(df1_new$genes[j], "/")[[1]])), df1_new$sum2[j] + df2_new$gene_count[k]), 
+            col = df1_new$lcol[i], rou1 = 0.72, rou2 = 0.72)
+
+#df1_new$genes[i]<-paste0(df1_new$genes[i], "/", paste(genes, collapse = "/"))
+#df1_new$genes[j]<-paste0(df1_new$genes[j], "/", paste(genes, collapse = "/"))
+
+df1_new$sum2[i]<-df1_new$sum2[i] + df2_new$gene_count[k] - length(intersect(genes, strsplit(df1_new$genes[i], "/")[[1]]))
+df1_new$sum2[j]<-df1_new$sum2[j] + df2_new$gene_count[k] - length(intersect(genes, strsplit(df1_new$genes[j], "/")[[1]]))
+
+df1_new$genes[i]<-paste(unique(c(strsplit(df1_new$genes[i], "/")[[1]], genes)), collapse = "/")
+df1_new$genes[j]<-paste(unique(c(strsplit(df1_new$genes[j], "/")[[1]], genes)), collapse = "/")
+}
+
+dev.off()
+```
