@@ -1,0 +1,342 @@
+---
+title: "IMR90 dynamic analysis of GOIs"
+author: "Jiawen Yang"
+date: "2023-06-13"
+output: 
+  html_document:
+    theme: simplex
+    #code_folding: hide
+    toc: true
+    number_sections: true
+    toc_float: true
+---
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 12px;
+  }
+td {  /* Table  */
+  font-size: 12px;
+}
+h1.title {
+  font-size: 32px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 24px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 12px;
+}
+</style>
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r clean environment, include=FALSE, echo = F}
+rm(list = ls())
+gc()
+```
+
+# Loading libraries
+
+```{r load libraries, include=T, echo=T, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(directlabels)
+library(limma)
+library(ggpubr)
+library(corrplot)
+```
+
+# Importing and organizing normalized IMR90 gene expression data 
+
+```{r import IMR90 expression data, include = T, echo = T, warning=FALSE, message=FALSE}
+IMR90_edat<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_wgcna/IMR90_edat.RDS")
+```
+
+## Taking mean expression value per condition per time point 
+
+```{r, include=TRUE, eval = T,echo=TRUE, warning=FALSE,message=FALSE}
+IMR90_ER<-IMR90_edat[, grep("ER", colnames(IMR90_edat))]
+IMR90_GFP<-IMR90_edat[, grep("GFP", colnames(IMR90_edat))]
+
+ER_time_point<-c("ER_0", "ER_4", "ER_8", 
+                 "ER_12", "ER_16", "ER_20", 
+                 "ER_24", "ER_32", "ER_40", 
+                 "ER_48")
+GFP_time_point<-c("GFP_0", "GFP_4", "GFP_8", 
+                  "GFP_12", "GFP_16", "GFP_20", 
+                  "GFP_24", "GFP_32", "GFP_40", 
+                  "GFP_48")
+
+IMR90_ER_mean<-data.frame(genes = rownames(IMR90_ER))
+for (i in 1:length(ER_time_point)){
+  time_point<-ER_time_point[i]
+  sub_df<-as.data.frame(IMR90_ER[, grep(time_point, colnames(IMR90_ER))])
+  sub_df[,"mean"]<-apply(sub_df, 1, mean)
+  df_mean<-as.data.frame(sub_df[, "mean"])
+  colnames(df_mean)<-time_point
+  IMR90_ER_mean<-cbind(IMR90_ER_mean, df_mean)
+}
+
+IMR90_GFP_mean<-data.frame(genes = rownames(IMR90_GFP))
+for (i in 1:length(GFP_time_point)){
+  time_point<-GFP_time_point[i]
+  sub_df<-as.data.frame(IMR90_GFP[, grep(time_point, colnames(IMR90_GFP))])
+  sub_df[,"mean"]<-apply(sub_df, 1, mean)
+  df_mean<-as.data.frame(sub_df[, "mean"])
+  colnames(df_mean)<-time_point
+  IMR90_GFP_mean<-cbind(IMR90_GFP_mean, df_mean)
+}
+
+IMR90_ER_mean_matrix<-as.matrix(IMR90_ER_mean[, 2:11])
+IMR90_GFP_mean_matrix<-as.matrix(IMR90_GFP_mean[, 2:11])
+
+IMR90_ER_GFP_DELTA<-IMR90_ER_mean_matrix-IMR90_GFP_mean_matrix
+
+IMR90_ER_GFP_DELTA<-as.data.frame(IMR90_ER_GFP_DELTA)
+rownames(IMR90_ER_GFP_DELTA)<-IMR90_ER_mean$genes
+```
+
+## Adjusting gene expression value of ER samples by substracting the value of GFP samples at the same time point
+
+```{r, include=TRUE,eval=T, echo=TRUE}
+IMR90_ER_GFP_DELTA_df<-reshape2::melt(as.matrix(IMR90_ER_GFP_DELTA))
+colnames(IMR90_ER_GFP_DELTA_df)<-c("genes", "time", "ER-GFP")
+IMR90_ER_GFP_DELTA_df$time<-unlist(lapply(as.character(IMR90_ER_GFP_DELTA_df$time), function(x) strsplit(x, "_")[[1]][2]))
+IMR90_ER_GFP_DELTA_df$time<-as.numeric(IMR90_ER_GFP_DELTA_df$time)
+IMR90_ER_GFP_DELTA_df$`ER-GFP`<-as.numeric(IMR90_ER_GFP_DELTA_df$`ER-GFP`)
+```
+
+## Performing DEGs analysis for ER vs. GFP at 48 hours 
+
+```{r DEGs_48h_ER_GFP, include=TRUE}
+group_48h_DEGs<-factor(c(rep("GFP_48",3), rep("ER_48",3)), levels = c("GFP_48", "ER_48"))
+design<-model.matrix(~0 + group_48h_DEGs)
+IMR90_48h_ER_GFP<-IMR90_edat[,c(grep("GFP_48",colnames(IMR90_edat)), grep("ER_48", colnames(IMR90_edat)))]
+comparison = "group_48h_DEGsER_48 - group_48h_DEGsGFP_48"
+cont=makeContrasts(comparison,levels=design)
+fit=lmFit(IMR90_48h_ER_GFP,design)
+vfit=contrasts.fit(fit,contrasts=cont)
+efit<- eBayes(vfit)
+DEGs_48h<-topTreat(efit, sort.by = "P", n = Inf)
+```
+
+## Plotting the gene markers for MCC and neuroendocrine tumors in ER 48 hours samples
+
+```{r, include=TRUE, echo=TRUE, eval =T}
+# gene markers
+neuroendocrine_markers<-c("ENO2", "NEFM", "NEFH", "NMB", "HES6")
+neural_genes<-c("EFNB1","SEMA4D", "SLIT2")
+keratin_markers<-c("KRT8", "KRT18")
+wnt_down_gene_list<-c("WNT5A","WNT5B", "FZD2", "FZD7","FZD8", "WNT16", "TCF7L2")
+wnt_up_gene_list<-c("WNT3", "TCF7","TCF3","WNT9A","FZD9", "LEF1")
+
+# graph settings
+theme<-theme(panel.background = element_blank(),
+             panel.border=element_rect(fill=NA),
+             panel.grid.major = element_blank(),
+             panel.grid.minor = element_blank(),
+             strip.background=element_blank(),
+             axis.text.x=element_text(colour="black"),
+             axis.text.y=element_text(colour="black"),
+             axis.ticks=element_line(colour="black"),
+             plot.margin=unit(c(1,1,1,1),"line"),
+             legend.title = element_text(face = "bold"),
+             legend.text = element_text(face = "bold"),
+             axis.title.x = element_text(color="black", size=18, face="bold"),
+             axis.title.y = element_text(color="black", size=18, face="bold"),
+             axis.text = element_text(size = 12, face = "bold"))
+```
+
+```{r plotting bar plot for gene markers in ER samples, echo = T, include = T, fig.width=10, fig.height=8}
+FC_df<-rbind(data.frame(genes =neuroendocrine_markers,logFC = DEGs_48h[neuroendocrine_markers,"logFC"],  makers = rep("neuroendocrine_markers", n = length(neuroendocrine_markers))),
+             data.frame(genes =neural_genes, logFC = DEGs_48h[neural_genes,"logFC"], makers = rep("neural_genes", n = length(neural_genes))),
+             data.frame(genes =keratin_markers, logFC = DEGs_48h[keratin_markers, "logFC"], makers = rep("keratin_markers", n = length(keratin_markers))))
+
+# Bar plot to show the FC of ER vs.GFP at 48 hrs 
+pdf(file = "/xdisk/mpadi/jiawenyang/result/pp_in_merk")
+p<-ggplot(FC_df, aes(x=factor(genes, levels = genes), y=2^(logFC), fill=factor(makers, levels = c("neuroendocrine_markers", "neural_genes", "keratin_markers")))) +
+   geom_bar(stat="identity")+
+   guides(fill=guide_legend(title="Gene categories")) +
+   xlab("")+
+   ylab("Fold Change ER vs.GFP at 48 hrs") +
+   geom_hline(yintercept = 1, color = "red", linetype = "twodash") +
+   theme(legend.position="bottom")+
+   theme
+p
+
+# Display the statistic data from DEGs anaylsis for 48 hrs ER and GFP samples 
+DT::datatable(DEGs_48h[c(neuroendocrine_markers, neural_genes, keratin_markers),])
+```
+
+## Plotting the WNT genes expression dynamic pattern in ER samples (adjusted by GFP)
+
+```{r, include=TRUE, echo=TRUE, eval =T,fig.height=10, fig.width=16,warning=FALSE,message=FALSE}
+# dynamic expression pattern of GOIs 
+p_up<-ggplot(IMR90_ER_GFP_DELTA_df[IMR90_ER_GFP_DELTA_df$genes %in% wnt_up_gene_list, ], 
+       aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)),
+           y=`ER-GFP`, fill = genes, colour = genes, group = genes)) +
+  geom_line(size =0.5)+
+  geom_point(size=1.5)+
+  geom_dl(aes(label = genes), method = list(dl.trans(x = x + 0.15), "last.points", cex = 0.7, face = "bold"))+
+  ylim(-3, 2)+
+  labs(x = 'time', y = "Relative gene expression level to control at the same time point")+
+  theme(plot.title = element_text(size = 12, face = "bold"),
+    legend.title=element_text(size=15), 
+    legend.text=element_text(size=12))
+p_up<-p_up+theme
+
+p_down<-ggplot(IMR90_ER_GFP_DELTA_df[IMR90_ER_GFP_DELTA_df$genes %in% wnt_down_gene_list, ], 
+       aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)),
+           y=`ER-GFP`, fill = genes, colour = genes, group = genes)) +
+  geom_line(size =0.5)+
+  geom_point(size=1.5)+
+  geom_dl(aes(label = genes), method = list(dl.trans(x = x + 0.15), "last.points", cex = 0.7, face = "bold"))+
+  ylim(-3, 2)+
+  labs(x = 'time', y = "Relative gene expression level to control at the same time point")+
+  theme(plot.title = element_text(size = 12, face = "bold"),
+    legend.title=element_text(size=15), 
+    legend.text=element_text(size=12))
+p_down<-p_down+theme
+
+IMR90_WNT_genes_plot<-ggarrange(p_up, p_down,
+              ncol = 2,
+              nrow = 1
+) 
+IMR90_WNT_genes_plot
+```
+
+# The dynamic pattern of gene-gene correlation in ER and GFP samples
+
+## Performing pearson correlation on GOIs in different conditions
+
+### Writing functions for pearson correlation
+
+```{r gene-gene correlation by performing pearson correlation, include=TRUE, echo =TRUE}
+pc.test<-function(pc, ...){
+  pc<-as.matrix(pc)
+  n<-ncol(pc)
+  p.pc<-matrix(NA, n, n)
+  diag(p.pc)<-0
+  for (i in 1:(n-1)){
+    for (j in (i + 1):n){
+      tmp <- cor.test(pc[,i], pc[,j], ...)
+      p.pc[i,j]<-p.pc[j,i]<-tmp$p.value
+    }
+  }
+  colnames(p.pc) <- rownames(p.pc) <-colnames(pc)
+  p.pc
+}
+
+pearson_cor_matrix<-function(condition, time_period){
+  sample<-paste0(condition,"_",time_period)
+  matrix<-edat[[sample]]
+  result<-list()
+  pc<-cor(as.matrix(t(matrix)), method = "pearson")
+  sig<-pc.test(pc)
+  result[["pc"]]<-pc
+  result[["pc.pvalue"]]<-sig
+  col<- colorRampPalette(c("blue", "white", "red"))(20)
+  p_cor<-corrplot(pc, type="lower", method = "circle", order = "original", col = col,
+           p.mat = sig, 
+           sig.level = 0.05, 
+           insig = "pch",
+           pch.cex = 1.5,
+           tl.col = "black",
+           tl.cex = 1.5,
+           number.cex = 7/ncol(pc),
+           cl.cex = nrow(pc)*10/400)
+  return(p_cor)
+}
+```
+
+### Organizing GOIs and grouping samples by time periods
+
+```{r}
+wnt_genes<-c("WNT3","WNT5B", "WNT9A", "FZD2", "FZD8", "FZD9", "LRP5", "TCF7", "TCF7L1", "WNT5A", "WNT16","FZD7", "FZD6", "FZD4", "FZD1", "LRP6","TCF7L2") #TCF3 shows similar pattern to TCF7L1, TCF4 shows similar pattern to TCF7L2
+hippo_genes<-c("YAP1", "WWTR1", "LATS1", "LATS2")
+
+IMR90_edat_MCC_wnt<-IMR90_edat[c(wnt_genes, hippo_genes, neuroendocrine_markers, neural_genes, keratin_markers), ]
+IMR90_edat_MCC_wnt<-na.omit(IMR90_edat_MCC_wnt)
+
+colnames(IMR90_edat_MCC_wnt)<-unlist(lapply(colnames(IMR90_edat_MCC_wnt), function(x) substring(x, 1, nchar(x)-2)))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_48", "_t5",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_40", "_t5",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_32", "_t4",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_24", "_t4",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_20", "_t3",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_16", "_t3",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_12", "_t2",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_8", "_t2",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_4", "_t1",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_0", "_t1",colnames(IMR90_edat_MCC_wnt))
+
+conditions<-c("ER","GFP")
+time_points<-c("t1", "t2","t3","t4","t5")
+
+edat<-list()
+for (i in 1:length(time_points)){
+  time<-paste0("_",time_points[i])
+  for (j in 1:length(conditions)){
+    condition<-conditions[j]
+    samples<-paste0(condition, time)
+    df<-IMR90_edat_MCC_wnt[,which(colnames(IMR90_edat_MCC_wnt) == samples)]
+    rownames(df)[which(rownames(df) %in% wnt_genes)]<-paste0(rownames(df)[which(rownames(df) %in% wnt_genes)], "_wnt")
+    rownames(df)[which(rownames(df) %in% neural_genes)]<-paste0(rownames(df)[which(rownames(df) %in% neural_genes)], "_neural")
+    rownames(df)[which(rownames(df) %in% hippo_genes)]<-paste0(rownames(df)[which(rownames(df) %in% hippo_genes)], "_hippo")
+    rownames(df)[which(rownames(df) %in% keratin_markers)]<-paste0(rownames(df)[which(rownames(df) %in% keratin_markers)], "_keratin")
+    rownames(df)[which(rownames(df) %in% neuroendocrine_markers)]<-paste0(rownames(df)[which(rownames(df) %in% neuroendocrine_markers)], "_NEmarker")
+    edat[[samples]]<-df
+  }
+}
+```
+
+## plotting correlation results of ER samples
+
+```{r, include = T, echo = T, fig.height=7, fig.width=30}
+par(mfrow = c(1,5))
+condition = "ER"
+  for (j in 1:length(time_points)){
+    time_period<-time_points[j]
+    sample_name<-paste0(condition, "_",time_period)
+    p_cor<-pearson_cor_matrix(condition, time_period)
+    assign(paste0(condition,"_",time_period), p_cor)
+  }
+
+pdf(file = "/xdisk/mpadi/jiawenyang/result/merkel_cell/pp_in_mcc_paper/figure/IMR90_dynamic_Pearson_correlation_ER.pdf", height = 7, width= 30)
+p_cor
+dev.off()
+```
+
+## plotting correlation results of GFP samples
+
+```{r, include = T, echo = T, fig.height=7, fig.width=30}
+par(mfrow = c(1,5))
+condition = "GFP"
+  for (j in 1:length(time_points)){
+    time_period<-time_points[j]
+    sample_name<-paste0(condition, "_",time_period)
+    p_cor<-pearson_cor_matrix(condition, time_period)
+    assign(paste0(condition,"_",time_period), p_cor)
+  }
+
+pdf(file = "/xdisk/mpadi/jiawenyang/result/merkel_cell/pp_in_mcc_paper/figure/IMR90_dynamic_Pearson_correlation_GFP.pdf", height = 7, width= 30)
+p_cor
+dev.off()
+```
