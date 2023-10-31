@@ -1,1 +1,76 @@
-Hello world
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Side Slide Layout</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        
+        .sidebar {
+            height: 100%;
+            width: 250px;
+            position: fixed;
+            top: 0;
+            left: -250px;
+            background-color: #333;
+            transition: left 0.3s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .sidebar a {
+            color: white;
+            text-decoration: none;
+            padding: 10px;
+        }
+
+        .content {
+            margin-left: 0;
+            padding: 20px;
+        }
+        
+        .open {
+            left: 0;
+        }
+
+        .footer {
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar" id="mySidebar">
+        <a href="javascript:void(0)" class="closebtn" onclick="closeNav()">&times;</a>
+        <a href="page1.html">Page 1</a>
+        <a href="page2.html">Page 2</a>
+        <a href="page3.html">Page 3</a>
+        <a href="page4.html">Page 4</a>
+        <a href="page5.html">Page 5</a>
+        <div class="footer">
+            <span>Side Slide Layout</span>
+            <a href="javascript:void(0)" onclick="openNav()">Open Sidebar</a>
+        </div>
+    </div>
+    
+    <div class="content">
+        <span style="font-size:30px;cursor:pointer" onclick="openNav()">&#9776; Open Sidebar</span>
+        <h1>Welcome to the Side Slide Layout</h1>
+    </div>
+
+    <script>
+        function openNav() {
+            document.getElementById("mySidebar").classList.add("open");
+        }
+
+        function closeNav() {
+            document.getElementById("mySidebar").classList.remove("open");
+        }
+    </script>
+</body>
+</html>
