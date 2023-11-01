@@ -7,42 +7,46 @@
             margin: 0;
             padding: 0;
             font-family: Arial, sans-serif;
+            display: flex;
         }
-        
+
         .sidebar {
-            height: 100%;
-            width: 300px;
-            position: fixed;
-            top: 0;
-            left: -300px;
+            width: 250px;
             background-color: #8C1A11;
-            transition: left 0.3s;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: space-between;
+            padding: 5px;
+            color: white;
         }
-        
+
         .sidebar a {
             color: white;
             text-decoration: none;
             padding: 10px;
-            text-align: center;
+            text-align: center; /* Center-align the text in the sidebar */
         }
 
         .content {
-            margin-left: 0;
+            flex: 1;
             padding: 20px;
         }
-        
-        .open {
-            left: 0;
+
+        .main-text {
+            margin-top: 20px;
+            text-align: center; /* Center-align the text in the content area */
         }
 
-        .footer {
-            display: flex;
-            justify-content: space-between;
+        .author {
+            font-style: italic;
+            margin-top: 10px;
         }
+
+        .date {
+            margin-top: 10px;
+        }
+        
     </style>
 </head>
 <body>
