@@ -1,89 +1,114 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Integrative analysis reveals therapeutic potential of pyrviniym pamoate in Merkel cell carcinoma </title>
+    <title>Your Documentation Title</title>
+    <link rel="stylesheet" href="https://cdn.rawgit.com/rstudio/rmarkdown/master/inst/rmd/h/redoc/css/redoc-bootstrap.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.2/css/all.min.css">
     <style>
-       body {
-            margin: 0;
-            padding: 0;
-            font-family: Arial, sans-serif;
-            display: flex;
+        body {
+            font-family: "Helvetica Neue", Arial, sans-serif;
         }
 
-        .sidebar {
-            width: 250px;
-            background-color: #333;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 10px;
-            color: white;
-        }
-
-        .banner {
-            background-color: #222;
-            width: 100%;
-            text-align: center;
-            padding: 10px 0;
-        }
-
-        .banner h2 {
-            margin: 0;
-        }
-
-        .sidebar a {
-            color: white;
-            text-decoration: none;
-            padding: 5px;
-            text-align: center;
-        }
-
-        .content {
-            flex: 1;
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
             padding: 20px;
         }
 
-        .main-text {
-            margin-top: 20px;
+        h1, h2, h3, h4, h5, h6 {
+            font-weight: bold;
+        }
+
+        code, pre {
+            font-family: Monaco, monospace;
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 2px 4px;
+        }
+
+        p {
+            line-height: 1.6;
+        }
+
+        .navbar {
+            background-color: #4B8A35;
+            color: #fff;
+            padding: 10px;
+        }
+
+        .navbar a {
+            color: #fff;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+
+        .navbar a:hover {
+            text-decoration: underline;
+        }
+
+        .navbar-brand {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .content {
+            padding: 20px 0;
+        }
+
+        .sidebar {
+            float: left;
+            width: 250px;
+            background-color: #F3F3F3;
+            padding: 20px;
+        }
+
+        .main-content {
+            float: right;
+            width: calc(100% - 290px);
+            padding: 20px;
+        }
+
+        .footer {
+            clear: both;
+            padding: 10px;
+            background-color: #4B8A35;
+            color: #fff;
             text-align: center;
-        }
-
-        .author {
-            font-style: italic;
-            margin-top: 10px;
-        }
-
-        .date {
-            margin-top: 10px;
-        }
-
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
         }
     </style>
 </head>
 <body>
-    <div class="sidebar">
-        <div class="banner">
-            <h2>Analysis Results</h2>
-        </div>
-        <a href="/pyrvinium_in_MCC/doc/IMR90_WGCNA/IMR90_WGCNA_analysis.html">IMR90 WGCNA analysis</a>
-        <a href="/pyrvinium_in_MCC/doc/IMR90_GRN/IMR90_GRN_analysis.html">IMR90 GRN analysis</a>
-        <a href="/pyrvinium_in_MCC/doc/GSE39612/GSE39612_analysis.html">Using GSE39612 data to generate MCC1000</a>
-        <a href="/pyrvinium_in_MCC/doc/L1000/L1000_analysis.html">L1000 data anaylsis</a>
-        <a href="/pyrvinium_in_MCC/doc/Pyr_treated_MCC/Pyr_treated_MCC_analysis.html">Pyrvinium treated MCC analysis</a>
+    <div class="navbar">
+        <a href="#" class="navbar-brand">Documentation</a>
+        <a href="#">Home</a>
+        <a href="#">About</a>
+        <a href="#">Contact</a>
     </div>
-    
-    <div class="content">
-        <iframe name="iframeContent" src="/pyrvinium_in_MCC/doc/IMR90_WGCNA/IMR90_WGCNA_analysis.html"></iframe>
-    </div>
+    <div class="container">
+        <div class="content">
+            <div class="sidebar">
+                <h3>Table of Contents</h3>
+                <ul>
+                    <li><a href="#section1">Section 1</a></li>
+                    <li><a href="#section2">Section 2</a></li>
+                    <li><a href="#section3">Section 3</a></li>
+                </ul>
+            </div>
+            <div class="main-content">
+                <h1 id="section1">Section 1</h1>
+                <p>This is the content of Section 1.</p>
 
-    <script>
-        function openNav() {
-                    document.querySelector(".sidebar").style.width = "250px";
-                }
-    </script>
+                <h2 id="section2">Section 2</h2>
+                <p>This is the content of Section 2.</p>
+
+                <h3 id="section3">Section 3</h3>
+                <p>This is the content of Section 3.</p>
+            </div>
+        </div>
+    </div>
+    <div class="footer">
+        &copy; 2023 Your Company Name
+    </div>
 </body>
 </html>
