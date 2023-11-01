@@ -52,7 +52,7 @@ pre { /* Code block - determines code spacing between lines */
 
 # Pyrvinium pamoate treated MCC cells analysis
 
-**_[back to home]("/pyrvinium_in_MCC/index.html")_**
+**_[back to home](/pyrvinium_in_MCC/index.html)_**
 
 ```{r, include=TRUE, echo=TRUE, warning=F, message=F}
 library(biomaRt)
@@ -974,4 +974,4 @@ library(fontawesome)
 ```  
 back to top [`r fa("arrow-circle-up", fill = "steelblue")`](#)
 
-**_[back to home]("/pyrvinium_in_MCC/index.html")_**
+**_[back to home](/pyrvinium_in_MCC/index.html)_**
