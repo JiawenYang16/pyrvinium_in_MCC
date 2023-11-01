@@ -61,7 +61,7 @@ This report aims to provide readers comprehensive details on methodology employe
 
 **Table of Contents**
 
-- [Network analysis reveals WNT signaling pathway dynamics in IMR90 and MCC tumor samples](/pyrvinium_in_MCC/doc/pyrvinium_pamoate_treated_MCC_analysis.html)
+- [Network analysis reveals WNT signaling pathway dynamics in IMR90 and MCC tumor samples](/pyrvinium_in_MCC/bin/pyrvinium_pamoate_treated_MCC_analysis.html)
 <br>
 <br>
 <br>
