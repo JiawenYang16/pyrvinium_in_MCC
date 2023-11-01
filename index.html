@@ -1,114 +1,76 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Your Documentation Title</title>
-    <link rel="stylesheet" href="https://cdn.rawgit.com/rstudio/rmarkdown/master/inst/rmd/h/redoc/css/redoc-bootstrap.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.2/css/all.min.css">
+    <title>PC CNA Signature</title>
     <style>
         body {
-            font-family: "Helvetica Neue", Arial, sans-serif;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f3f3f3;
+        }
+
+        header {
+            background-color: #333;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 36px;
+            margin: 0;
+        }
+
+        nav {
+            background-color: #555;
+            color: white;
+            padding: 10px;
+        }
+
+        nav a {
+            color: white;
+            text-decoration: none;
+            margin: 0 20px;
         }
 
         .container {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
-        }
-
-        h1, h2, h3, h4, h5, h6 {
-            font-weight: bold;
-        }
-
-        code, pre {
-            font-family: Monaco, monospace;
-            background-color: #f8f8f8;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 2px 4px;
-        }
-
-        p {
-            line-height: 1.6;
-        }
-
-        .navbar {
-            background-color: #4B8A35;
-            color: #fff;
-            padding: 10px;
-        }
-
-        .navbar a {
-            color: #fff;
-            text-decoration: none;
-            margin: 0 10px;
-        }
-
-        .navbar a:hover {
-            text-decoration: underline;
-        }
-
-        .navbar-brand {
-            font-size: 24px;
-            font-weight: bold;
+            background-color: white;
         }
 
         .content {
-            padding: 20px 0;
-        }
-
-        .sidebar {
-            float: left;
-            width: 250px;
-            background-color: #F3F3F3;
             padding: 20px;
         }
 
-        .main-content {
-            float: right;
-            width: calc(100% - 290px);
-            padding: 20px;
-        }
-
-        .footer {
-            clear: both;
-            padding: 10px;
-            background-color: #4B8A35;
-            color: #fff;
+        footer {
+            background-color: #333;
+            color: white;
             text-align: center;
+            padding: 10px;
         }
     </style>
 </head>
 <body>
-    <div class="navbar">
-        <a href="#" class="navbar-brand">Documentation</a>
+    <header>
+        <h1>PC CNA Signature</h1>
+    </header>
+    <nav>
         <a href="#">Home</a>
-        <a href="#">About</a>
-        <a href="#">Contact</a>
-    </div>
+        <a href="#">Data Preprocessing</a>
+        <a href="#">Analysis</a>
+        <a href="#">Results</a>
+    </nav>
     <div class="container">
         <div class="content">
-            <div class="sidebar">
-                <h3>Table of Contents</h3>
-                <ul>
-                    <li><a href="/pyrvinium_in_MCC/doc/GSE39612/GSE39612_analysis.html">Section 1</a></li>
-                    <li><a href="#section2">Section 2</a></li>
-                    <li><a href="#section3">Section 3</a></li>
-                </ul>
-            </div>
-            <div class="main-content">
-                <h1 id="section1">Section 1</h1>
-                <p>This is the content of Section 1.</p>
-
-                <h2 id="section2">Section 2</h2>
-                <p>This is the content of Section 2.</p>
-
-                <h3 id="section3">Section 3</h3>
-                <p>This is the content of Section 3.</p>
-            </div>
+            <h2>Data Preprocessing</h2>
+            <p>This is the content of the Data Preprocessing section. You can add your content here.</p>
         </div>
     </div>
-    <div class="footer">
-        &copy; 2023 Your Company Name
-    </div>
+    <footer>
+        &copy; 2023 PC CNA Signature
+    </footer>
 </body>
 </html>
