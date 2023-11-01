@@ -51,7 +51,7 @@ pre { /* Code block - determines code spacing between lines */
 ---
 # MCC signature genes (MCC1000) reversal analysis in LINCS L1000 dataset
 
-**_[back to home]("/pyrvinium_in_MCC/index.html")_**
+**_[back to home]("/pyrvinium_in_MCC/")_**
 
 ```{r, load libraries, including=F, echo=T, warning=FALSE,message=FALSE}
 library(cmapR)
@@ -308,4 +308,4 @@ library(fontawesome)
 ```  
 back to top [`r fa("arrow-circle-up", fill = "steelblue")`](#)
 
-**_[back to home]("/pyrvinium_in_MCC/index.html")_**
+**_[back to home]("/pyrvinium_in_MCC/")_**
