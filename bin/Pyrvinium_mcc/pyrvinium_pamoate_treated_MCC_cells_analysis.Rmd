@@ -1,0 +1,977 @@
+---
+title: "Integrative analysis reveals therapeutic potential of pyrviniym pamoate in Merkel cell carcinoma"
+author: 
+    -  "Jiawen Yang"
+    -  "James Lim"
+    -  "Paul Victor"
+    -  "Chen Chen"
+    -  "Hunain Khwaja"
+    -  "Rick Schnellmann"
+    -  "Denise Roe"
+    -  "Prafulla Gokhale"
+    -  "James DeCaprio"
+    -  "Megha Padi (corresponding author)"
+date: "2023-10-31"
+discritpion: "The analysis report for the Merkel cell carcinoma and pyrvinium pamoate project"
+output: 
+  rmdformats::readthedown
+---
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 12px;
+  }
+td {  /* Table  */
+  font-size: 12px;
+}
+h1.title {
+  font-size: 32px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 24px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 20px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 12px;
+}
+</style>
+---
+
+# Pyrvinium pamoate treated MCC cells analysis
+
+**_[back to home]("/pyrvinium_in_MCC/index.html")_**
+
+```{r, include=TRUE, echo=TRUE, warning=F, message=F}
+library(biomaRt)
+library(edgeR)
+library(limma)
+library(ggplot2)
+library(ggrepel)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(plotly)
+library(dplyr)
+library(DT)
+library(viper)
+library(dorothea)
+library(ggpubr)
+```
+
+## Importing data
+```{r, include=TRUE, echo=T, warning=F, message=F}
+gene_count<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/pyr_treated_mcc/read_counts.rds")
+genemart<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_wgcna/genemart.rds")
+gse39612_tumor.vs.normal<-read.delim2(file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/gse39612_tumor_vs_normal_DEGs_analysis.csv", sep = ",", row.names = 1)
+```
+
+## Performing DEGs analysis on pyrvinium treated MCC cell lines
+
+### Dividing samples to WaGa and MKL1 cells separately
+```{r, include=TRUE, echo=TRUE}
+df_MKL1<-gene_count[,1:15]
+print(head(df_MKL1))
+df_WaGa<-gene_count[, 16:30]
+print(head(df_WaGa))
+```
+
+### Performing normalization and DEGs analysis for MKL1 samples
+```{r MKL1 DEGs, include=TRUE, eval = F, echo=TRUE}
+group_MKL1<-factor(c(rep("Mcon",3), rep("MD24h", 3), rep("MD6h", 3), rep("MP24h",3), rep("MP6h",3)))
+ensemblid_MKL1<-rownames(df_MKL1)
+ensemblid_MKL1<-unlist(lapply(ensemblid_MKL1, function(x) strsplit(x, "[.]")[[1]][1]))
+gene_MKL1<- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id","hgnc_symbol","chromosome_name","band","description","start_position","end_position", "entrezgene_id"),
+                   values=ensemblid_MKL1,mart=genemart)
+
+y<- DGEList(counts=df_MKL1,group=group_MKL1)
+keep <- rowSums(cpm(y)>1) >= length(group_MKL1)/5 #cpm: compute counts per million or reads per kilobase per million#
+y <- y[keep, ,keep.lib.sizes=FALSE]
+y <- calcNormFactors(y)
+mm <- model.matrix(~0 + group_MKL1)
+temp <- voom(y,mm, plot = T) ## voom + TMM
+edat_MKL1 = temp$E
+edat_MKL1<-as.data.frame(edat_MKL1)
+fit <- lmFit(temp, mm)
+efit <- eBayes(fit)
+plotSA(efit, main="Final model: Mean-variance trend")
+
+edat_MKL1[,"ensembl_gene_id"]<-unlist(lapply(rownames(edat_MKL1), function(x) strsplit(x, "[.]")[[1]][1]))
+edat_MKL1_annotated<-left_join(edat_MKL1, gene_MKL1, by = "ensembl_gene_id")
+edat_MKL1_annotated<-edat_MKL1_annotated[edat_MKL1_annotated$hgnc_symbol != "",]
+edat_MKL1_annotated<-edat_MKL1_annotated[!duplicated(edat_MKL1_annotated$hgnc_symbol),]
+edat_MKL1_annotated<-na.omit(edat_MKL1_annotated)
+rownames(edat_MKL1_annotated)<-edat_MKL1_annotated$hgnc_symbol
+edat_MKL1_annotated<-edat_MKL1_annotated[,c(1:15)]
+
+design <- model.matrix(~0 + group_MKL1)
+colnames(design)<-gsub("group_MKL1", "", colnames(design))
+contr.matrix <- makeContrasts(
+  MP6hvsMD6h = MP6h-MD6h, 
+  MP24hvsMD24h = MP24h-MD24h, 
+  MPvsMD = (MP6h+MP24h)-(MD6h+MD24h),
+  MDvsMcon = (MD6h+MD24h)-Mcon,
+  MPvsMcon= (MP6h+MP24h)-Mcon,
+  levels = colnames(design))
+colnames(fit$coefficients)<-gsub("group_MKL1","",colnames(fit$coefficients))
+vfit <- contrasts.fit(fit, contrasts=contr.matrix)
+efit <- eBayes(vfit)
+
+DEGs_df_all_comparisons_MKL1<-list()
+for (i in 1:length(colnames(efit$coefficients))){
+  coef_name<-colnames(efit$coefficients)[i]
+  print(coef_name)
+  DEGs_df<-topTable(efit, coef = coef_name, n = Inf)
+  rownames(DEGs_df)<-unlist(lapply(rownames(DEGs_df), function(x) strsplit(x, "[.]")[[1]][1]))
+  DEGs_df$ensembl_gene_id<-rownames(DEGs_df)
+  DEGs_df$hgnc_symbol<-gene_MKL1[match(rownames(DEGs_df), gene_MKL1$ensembl_gene_id), "hgnc_symbol"]
+  DEGs_df$entrezgene_id<-gene_MKL1[match(rownames(DEGs_df), gene_MKL1$ensembl_gene_id), "entrezgene_id"]
+  DEGs_df_all_comparisons_MKL1[[i]]<-DEGs_df
+} #loop to generate a df list for DEGs without any filter.
+names(DEGs_df_all_comparisons_MKL1)<-colnames(efit$coefficients)
+```
+
+### Performing normalization and DEGs analysis for WaGa samples
+```{r WaGa DEGs, include=TRUE, eval = F, echo=TRUE}
+group_Waga<-factor(c(rep("Wcon", 3), rep("WD24h", 3), rep("WD6h",3), rep("WP24h", 3), rep("WP6h",3)))
+ensemblid_waga<-rownames(df_WaGa)
+ensemblid_waga<-unlist(lapply(ensemblid_waga, function(x) strsplit(x, "[.]")[[1]][1]))
+genes_waga <- getBM(filters= "ensembl_gene_id", attributes= c("ensembl_gene_id","hgnc_symbol","chromosome_name","band","description","start_position","end_position","entrezgene_id"),
+              values=ensemblid_waga,mart= genemart) 
+
+y<- DGEList(counts=df_WaGa,group=group_Waga)
+keep <- rowSums(cpm(y)>1) >= length(group_Waga)/5 #cpm: compute counts per million or reads per kilobase per million#
+y <- y[keep, ,keep.lib.sizes=FALSE]
+y <- calcNormFactors(y)
+mm <- model.matrix(~0 + group_Waga)
+temp <- voom(y,mm, plot = T) ## voom + TMM
+edat_waga = temp$E
+edat_waga<-as.data.frame(edat_waga)
+fit <- lmFit(temp, mm)
+efit <- eBayes(fit)
+plotSA(efit, main="Final model: Mean-variance trend")
+
+edat_waga[,"ensembl_gene_id"]<-unlist(lapply(rownames(edat_waga), function(x) strsplit(x, "[.]")[[1]][1]))
+edat_waga_annotated<-left_join(edat_waga, genes_waga, by = "ensembl_gene_id")
+edat_waga_annotated<-edat_waga_annotated[edat_waga_annotated$hgnc_symbol != "",]
+edat_waga_annotated<-edat_waga_annotated[!duplicated(edat_waga_annotated$hgnc_symbol),]
+edat_waga_annotated<-na.omit(edat_waga_annotated)
+rownames(edat_waga_annotated)<-edat_waga_annotated$hgnc_symbol
+edat_waga_annotated<-edat_waga_annotated[,c(1:15)]
+
+design <- model.matrix(~0 + group_Waga)
+colnames(design)<-gsub("group_Waga", "", colnames(design))
+contr.matrix <- makeContrasts(
+  WP6hvsWD6h = WP6h-WD6h, 
+  WP24hvsWD24h = WP24h-WD24h, 
+  WPvsWD = (WP6h+WP24h)-(WD6h+WD24h),
+  WDvsWcon = (WD6h+WD24h)-Wcon,
+  WPvsWcon= (WP6h+WP24h)-Wcon,
+  levels = colnames(design))
+colnames(fit$coefficients)<-gsub("group_Waga","",colnames(fit$coefficients))
+vfit <- contrasts.fit(fit, contrasts=contr.matrix)
+efit <- eBayes(vfit)
+
+DEGs_df_all_comparisons_waga<-list()
+for (i in 1:length(colnames(efit$coefficients))){
+  coef_name<-colnames(efit$coefficients)[i]
+  print(coef_name)
+  DEGs_df<-topTable(efit, coef = coef_name, n = Inf)
+  rownames(DEGs_df)<-unlist(lapply(rownames(DEGs_df), function(x) strsplit(x, "[.]")[[1]][1]))
+  DEGs_df$ensembl_gene_id<-rownames(DEGs_df)
+  DEGs_df$hgnc_symbol<-genes_waga[match(rownames(DEGs_df), genes_waga$ensembl_gene_id), "hgnc_symbol"]
+  DEGs_df$entrezgene_id<-genes_waga[match(rownames(DEGs_df), genes_waga$ensembl_gene_id), "entrezgene_id"]
+  DEGs_df_all_comparisons_waga[[i]]<-DEGs_df
+} #loop to generate a df list for DEGs without any filter.
+names(DEGs_df_all_comparisons_waga)<-colnames(efit$coefficients)
+```
+
+### Visualizing DEGs in volcano plots
+```{r volcano plots for MKL1 and Waga cells, include = T, echo = T, fig.width=14, fig.height=10, warning=F, message=F}
+DEGs_df_all_comparisons_waga<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/pyr_treated_mcc/Pyr_treatment_DEGs_all_realigned_waga.RDS")
+DEGs_df_all_comparisons_MKL1<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/pyr_treated_mcc/Pyr_treatment_DEGs_all_realigned_MKL1.RDS")
+
+generate_volcano_plot_for_Waga_cell<-function(samplename){
+  volc<-data.frame(log2fc = DEGs_df_all_comparisons_waga[[samplename]][,"logFC"],
+                   sig = -1*log(as.numeric(DEGs_df_all_comparisons_waga[[samplename]][,"adj.P.Val"]), base = 10),
+                   genes = DEGs_df_all_comparisons_waga[[samplename]][, "hgnc_symbol"])
+  volc$de <- "NS"
+  volc$de[volc$sig>-1*log10(0.05)] <- "Significant"
+  volc$de[abs(volc$log2fc) >= 1 & volc$sig >10]<-"label"
+  volc$delabel <- volc$genes
+  volc[which(volc$de != "label"), "delabel"]<- NA
+  id<-samplename
+  p<-ggplot(volc,aes(x=log2fc,y=sig,col=de))+
+    theme_linedraw()+
+    theme_light()+
+    geom_point(col = ifelse(volc$de == "NS", "#bdbdbd", ifelse(volc$de =="label","#FF8000","#9ecae1")))+
+    geom_text_repel(size = 2.5, colour = "black", aes(label = ifelse(delabel != "<NA>", delabel, "")), max.overlaps = 30) +
+    geom_vline(xintercept=c(-1, 1), col="red",linetype=4)+
+    geom_hline(yintercept=-1*log10(0.05),col="black", linetype=4)+
+    ggtitle(as.character(id))+
+    ylab("-log10(padj)") +
+    xlab(paste0(id,"\n Log2(Fold Change)")) #+
+  #xlim(-3,3)+
+  #ylim(0,40)
+  ggsave(p, width = 14, height = 10, file = paste0("/xdisk/mpadi/jiawenyang/result/merkel_cell/pp_in_mcc_paper/figure/pyrvinium_treated_", samplename, "_DEGs_volcano_plot.pdf"))
+  return(p)
+}
+
+generate_volcano_plot_for_Waga_cell("WP24hvsWD24h")
+
+generate_volcano_plot_for_MKL1_cell<-function(samplename){
+  volc<-data.frame(log2fc = DEGs_df_all_comparisons_MKL1[[samplename]][,"logFC"],
+                   sig = -1*log(as.numeric(DEGs_df_all_comparisons_MKL1[[samplename]][,"adj.P.Val"]), base = 10),
+                   genes = DEGs_df_all_comparisons_MKL1[[samplename]][, "hgnc_symbol"])
+  volc$de <- "NS"
+  volc$de[volc$sig>-1*log10(0.05)] <- "Significant"
+  volc$de[abs(volc$log2fc) >= 1 & volc$sig >10]<-"label"
+  volc$delabel <- volc$genes
+  volc[which(volc$de != "label"), "delabel"]<- NA
+  id<-samplename
+  p<-ggplot(volc,aes(x=log2fc,y=sig,col=de))+
+    theme_linedraw()+
+    theme_light()+
+    geom_point(col = ifelse(volc$de == "NS", "#bdbdbd", ifelse(volc$de =="label","#FF8000","#9ecae1")))+
+    geom_text_repel(size = 2.5, colour = "black", aes(label = ifelse(delabel != "<NA>", delabel, "")), max.overlaps = 30) +
+    geom_vline(xintercept=c(-1, 1), col="red",linetype=4)+
+    geom_hline(yintercept=-1*log10(0.05),col="black", linetype=4)+
+    ggtitle(as.character(id))+
+    ylab("-log10(padj)") +
+    xlab(paste0(id,"\n Log2(Fold Change)"))
+  ggsave(p, width = 14, height = 10, file= paste0("/xdisk/mpadi/jiawenyang/result/merkel_cell/pp_in_mcc_paper/figure/pyrvinium_treated_", samplename, "_DEGs_volcano_plot.pdf"))
+  return(p)
+}
+
+generate_volcano_plot_for_MKL1_cell("MP24hvsMD24h")
+```
+
+### Overlapping GSE39612 MCC tumor vs. normal skin significant DEGs with pyrvinium vs.dmso treated MCC cell lines significant DEGs and visualizing with volcano plot
+
+```{r overlap with gse39612 and visualize data in WaGa, include = T, echo = T, fig.height = 6, fig.width=10, warning=F, message=F}
+WP24hvsWD24h<-DEGs_df_all_comparisons_waga$WP24hvsWD24h
+WP24hvsWD24h_sig_upregulated_DEGs<-WP24hvsWD24h[WP24hvsWD24h$logFC>=1 & WP24hvsWD24h$adj.P.Val <=0.05,]
+WP24hvsWD24h_sig_downregulated_DEGs<-WP24hvsWD24h[WP24hvsWD24h$logFC<=-1 & WP24hvsWD24h$adj.P.Val <=0.05,]
+
+gse39612_tumor.vs.normal$logFC<-as.numeric(gse39612_tumor.vs.normal$logFC)
+gse39612_tumor.vs.normal$adj.P.Val<-as.numeric(gse39612_tumor.vs.normal$adj.P.Val)
+gse39612_sig_upregulated_DEGs<-gse39612_tumor.vs.normal[gse39612_tumor.vs.normal$logFC>=1,]
+gse39612_sig_upregulated_DEGs<-gse39612_sig_upregulated_DEGs[gse39612_sig_upregulated_DEGs$adj.P.Val<=0.05,]
+gse39612_sig_downregulated_DEGs<-gse39612_tumor.vs.normal[gse39612_tumor.vs.normal$logFC<=-1, ]
+gse39612_sig_downregulated_DEGs<-gse39612_sig_downregulated_DEGs[gse39612_sig_downregulated_DEGs$adj.P.Val<=0.05,]
+
+GSE39612_upregulated_DEGs_decreased_in_pyr_waga_DEGs<-intersect(rownames(gse39612_sig_upregulated_DEGs), WP24hvsWD24h_sig_downregulated_DEGs$hgnc_symbol)
+GSE39612_downregulated_DEGs_increased_in_pyr_waga_DEGs<-intersect(rownames(gse39612_sig_downregulated_DEGs), WP24hvsWD24h_sig_upregulated_DEGs$hgnc_symbol)
+
+volc<-data.frame(log2fc = DEGs_df_all_comparisons_waga[["WP24hvsWD24h"]][,"logFC"],
+                 sig = -1*log10(DEGs_df_all_comparisons_waga[["WP24hvsWD24h"]][,"adj.P.Val"]),
+                 genes = DEGs_df_all_comparisons_waga[["WP24hvsWD24h"]][, "hgnc_symbol"])
+volc$de <- "NS"
+volc$de[volc$sig>-1*log10(0.05)] <- "Significant"
+annotate_down_df<-volc[volc$genes %in% GSE39612_upregulated_DEGs_decreased_in_pyr_waga_DEGs,]
+annotate_up_df<-volc[volc$genes %in% GSE39612_downregulated_DEGs_increased_in_pyr_waga_DEGs,]
+
+p<-ggplot(volc,aes(x=log2fc,y=sig))+
+  theme_linedraw()+
+  theme_light()+
+  geom_point(col = "grey50", size = 3, alpha = 0.3)+
+  #geom_text_repel(size = 2.5, colour = "black", aes(label = ifelse(delabel != "<NA>", delabel, ""))) +
+  geom_point(data = annotate_down_df , # New layer containing data subset il_genes       
+             size = 3,
+             shape = 21,
+             alpha = 0.8,
+             fill = "firebrick",
+             colour = "black")+
+  geom_text_repel(data = annotate_down_df, aes(label = genes), size = 2.8, fontface = "bold", colour = "black", force = 1, max.overlaps = 20) +
+  geom_point(data = annotate_up_df, # New layer containing data subset il_genes       
+             size = 3,
+             shape = 21,
+             fill = "blue",
+             alpha = 0.8,
+             colour = "black")+
+  geom_text_repel(data = annotate_up_df, aes(label = genes), size = 2.8, fontface = "bold", colour = "black", force = 1, box.padding = 0.5, max.overlaps = 20) +
+  geom_vline(xintercept=c(-1, 1), col="red",linetype=4)+
+  geom_hline(yintercept=-1*log10(0.05),col="black", linetype=4)+
+  ylab("-log10(padj)") +
+  xlab("WaGa pyrvinium treated vs. control \n Log2(Fold Change)")
+p<-p+theme(axis.title=element_text(size=20,face="bold"),
+           axis.text = element_text(size =15, face="bold"))
+p
+```
+```{r overlap with gse39612 and visualize data in MKL1, include = T, echo = T, fig.height = 6, fig.width=10, warning=F, message=F}
+MP24hvsMD24h<-DEGs_df_all_comparisons_MKL1$MP24hvsMD24h
+MP24hvsMD24h_sig_upregulated_DEGs<-MP24hvsMD24h[MP24hvsMD24h$logFC>=1 & MP24hvsMD24h$adj.P.Val <=0.05,]
+MP24hvsMD24h_sig_downregulated_DEGs<-MP24hvsMD24h[MP24hvsMD24h$logFC<=-1 & MP24hvsMD24h$adj.P.Val <=0.05,]
+
+GSE39612_upregulated_DEGs_decreased_in_pyr_MKL1_DEGs<-intersect(rownames(gse39612_sig_upregulated_DEGs), MP24hvsMD24h_sig_downregulated_DEGs$hgnc_symbol)
+GSE39612_downregulated_DEGs_increased_in_pyr_MKL1_DEGs<-intersect(rownames(gse39612_sig_downregulated_DEGs), MP24hvsMD24h_sig_upregulated_DEGs$hgnc_symbol)
+
+volc<-data.frame(log2fc = DEGs_df_all_comparisons_MKL1[["MP24hvsMD24h"]][,"logFC"],
+                 sig = -1*log10(DEGs_df_all_comparisons_MKL1[["MP24hvsMD24h"]][,"adj.P.Val"]),
+                 genes = DEGs_df_all_comparisons_MKL1[["MP24hvsMD24h"]][, "hgnc_symbol"])
+volc$de <- "NS"
+volc$de[volc$sig>-1*log10(0.05)] <- "Significant"
+annotate_down_df<-volc[volc$genes %in% GSE39612_upregulated_DEGs_decreased_in_pyr_MKL1_DEGs,]
+annotate_up_df<-volc[volc$genes %in% GSE39612_downregulated_DEGs_increased_in_pyr_MKL1_DEGs,]
+
+p<-ggplot(volc,aes(x=log2fc,y=sig))+
+  theme_linedraw()+
+  theme_light()+
+  geom_point(col = "grey50", size = 3, alpha = 0.3)+
+  #geom_text_repel(size = 2.5, colour = "black", aes(label = ifelse(delabel != "<NA>", delabel, ""))) +
+  geom_point(data = annotate_down_df , # New layer containing data subset il_genes       
+             size = 3,
+             shape = 21,
+             alpha = 0.8,
+             fill = "firebrick",
+             colour = "black")+
+  geom_text_repel(data = annotate_down_df, aes(label = genes), size = 2.8, fontface = "bold", colour = "black", force = 1, max.overlaps = 20) +
+  geom_point(data = annotate_up_df, # New layer containing data subset il_genes       
+             size = 3,
+             shape = 21,
+             fill = "blue",
+             alpha = 0.8,
+             colour = "black")+
+  geom_text_repel(data = annotate_up_df, aes(label = genes), size = 2.8, fontface = "bold", colour = "black", force = 1, box.padding = 0.5, max.overlaps = 20) +
+  geom_vline(xintercept=c(-1, 1), col="red",linetype=4)+
+  geom_hline(yintercept=-1*log10(0.05),col="black", linetype=4)+
+  ylab("-log10(padj)") +
+  xlab("MKL1 pyrvinium treated vs. control \n Log2(Fold Change)")
+p<-p+theme(axis.title=element_text(size=20,face="bold"),
+           axis.text = element_text(size =15, face="bold"))
+p
+```
+
+## Performing GO-over representation analysis on DEGs from different cell lines and time of treatment
+```{r, include=TRUE, echo=TRUE}
+DEGs_df_all_comparisons_waga<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/pyr_treated_mcc/Pyr_treatment_DEGs_all_realigned_waga.RDS")
+WaGa_6h_up<-DEGs_df_all_comparisons_waga$WP6hvsWD6h[DEGs_df_all_comparisons_waga$WP6hvsWD6h$adj.P.Val <= 0.05 & 
+                                                      DEGs_df_all_comparisons_waga$WP6hvsWD6h$logFC >= 1,]
+WaGa_6h_down<-DEGs_df_all_comparisons_waga$WP6hvsWD6h[DEGs_df_all_comparisons_waga$WP6hvsWD6h$adj.P.Val <= 0.05 & DEGs_df_all_comparisons_waga$WP6hvsWD6h$logFC <= -1,]
+WaGa_6h_up[,"Cell_line"]<-rep("WaGa", nrow(WaGa_6h_up))
+WaGa_6h_up[,"time"]<-rep("6h", nrow(WaGa_6h_up))
+WaGa_6h_up[,"group"]<-rep("up", nrow(WaGa_6h_up))
+
+WaGa_6h_down[,"Cell_line"]<-rep("WaGa", nrow(WaGa_6h_down))
+WaGa_6h_down[,"time"]<-rep("6h", nrow(WaGa_6h_down))
+WaGa_6h_down[,"group"]<-rep("down", nrow(WaGa_6h_down))
+
+WaGa_24h_up<-DEGs_df_all_comparisons_waga$WP24hvsWD24h[DEGs_df_all_comparisons_waga$WP24hvsWD24h$adj.P.Val <= 0.05 & DEGs_df_all_comparisons_waga$WP24hvsWD24h$logFC >=1, ]
+WaGa_24h_down<-DEGs_df_all_comparisons_waga$WP24hvsWD24h[DEGs_df_all_comparisons_waga$WP24hvsWD24h$adj.P.Val <= 0.05 & DEGs_df_all_comparisons_waga$WP24hvsWD24h$logFC <=-1, ]
+
+WaGa_24h_up[,"Cell_line"]<-rep("WaGa", nrow(WaGa_24h_up))
+WaGa_24h_up[,"time"]<-rep("24h", nrow(WaGa_24h_up))
+WaGa_24h_up[,"group"]<-rep("up", nrow(WaGa_24h_up))
+
+WaGa_24h_down[,"Cell_line"]<-rep("WaGa", nrow(WaGa_24h_down))
+WaGa_24h_down[,"time"]<-rep("24h", nrow(WaGa_24h_down))
+WaGa_24h_down[,"group"]<-rep("down", nrow(WaGa_24h_down))
+
+
+DEGs_df_all_comparisons_MKL1<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/pyr_treated_mcc/Pyr_treatment_DEGs_all_realigned_MKL1.RDS")
+MKL1_6h_up<-DEGs_df_all_comparisons_MKL1$MP6hvsMD6h[DEGs_df_all_comparisons_MKL1$MP6hvsMD6h$adj.P.Val<=0.05 & 
+                                                      DEGs_df_all_comparisons_MKL1$MP6hvsMD6h$logFC >=1 , ]
+MKL1_6h_down<-DEGs_df_all_comparisons_MKL1$MP6hvsMD6h[DEGs_df_all_comparisons_MKL1$MP6hvsMD6h$adj.P.Val<=0.05 & 
+                                                        DEGs_df_all_comparisons_MKL1$MP6hvsMD6h$logFC <= -1 , ]
+MKL1_6h_up[,"Cell_line"]<-rep("MKL1", nrow(MKL1_6h_up))
+MKL1_6h_up[,"time"]<-rep("6h", nrow(MKL1_6h_up))
+MKL1_6h_up[,"group"]<-rep("up", nrow(MKL1_6h_up))
+
+MKL1_6h_down[,"Cell_line"]<-rep("MKL1", nrow(MKL1_6h_down))
+MKL1_6h_down[,"time"]<-rep("6h", nrow(MKL1_6h_down))
+MKL1_6h_down[,"group"]<-rep("down", nrow(MKL1_6h_down))
+
+MKL1_24h_up<-DEGs_df_all_comparisons_MKL1$MP24hvsMD24h[DEGs_df_all_comparisons_MKL1$MP24hvsMD24h$adj.P.Val<=0.05 & DEGs_df_all_comparisons_MKL1$MP24hvsMD24h$logFC >=1 , ]
+MKL1_24h_down<-DEGs_df_all_comparisons_MKL1$MP24hvsMD24h[DEGs_df_all_comparisons_MKL1$MP24hvsMD24h$adj.P.Val<=0.05 & DEGs_df_all_comparisons_MKL1$MP24hvsMD24h$logFC <= -1 , ]
+MKL1_24h_up[,"Cell_line"]<-rep("MKL1", nrow(MKL1_24h_up))
+MKL1_24h_up[,"time"]<-rep("24h", nrow(MKL1_24h_up))
+MKL1_24h_up[,"group"]<-rep("up", nrow(MKL1_24h_up))
+
+MKL1_24h_down[,"Cell_line"]<-rep("MKL1", nrow(MKL1_24h_down))
+MKL1_24h_down[,"time"]<-rep("24h", nrow(MKL1_24h_down))
+MKL1_24h_down[,"group"]<-rep("down", nrow(MKL1_24h_down))
+
+pyr_treated_DEGs<-list(WaGa_6h_up, WaGa_24h_up, MKL1_6h_up, MKL1_24h_up, WaGa_6h_down, WaGa_24h_down, MKL1_6h_down, MKL1_24h_down)
+pyr_treated_sig_DEGs<-Reduce(rbind, pyr_treated_DEGs)
+pyr_treated_sig_DEGs<-na.omit(pyr_treated_sig_DEGs)
+pyr_treated_sig_FC<-pyr_treated_sig_DEGs$logFC
+names(pyr_treated_sig_FC)<-pyr_treated_sig_DEGs$entrezgene_id
+pyr_treated_sig_DEGs<-pyr_treated_sig_DEGs[,c("entrezgene_id", "Cell_line", "time", "group", "logFC")]
+```
+
+```{r, include=TRUE, echo=TRUE, eval = F, layout = "l-body-outset"}
+pyr_go_result<-compareCluster(entrezgene_id~Cell_line+time,
+                          data = pyr_treated_sig_DEGs,
+                          fun = enrichGO,
+                          OrgDb = "org.Hs.eg.db",
+                          ont = "BP",
+                          pAdjustMethod = "BH",
+                          pvalueCutoff  = 0.05,
+                          qvalueCutoff  = 0.25
+                          )
+```
+
+### Visualizing the GO Terms over-representative analysis
+```{r, include=TRUE, echo=TRUE, fig.height=20, fig.width=14, warning=FALSE, message=FALSE}
+pyr_go_result<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/pyr_treated_mcc/pyr_treated_go_terms_enrichment.rds")
+GO_24H<-pyr_go_result@compareClusterResult[pyr_go_result@compareClusterResult$time == "24h", ]
+datatable(data = pyr_go_result@compareClusterResult)
+
+require(DOSE)
+require(enrichplot)
+require(viridis)
+
+pyr_go_result@compareClusterResult$Cell_line = factor(pyr_go_result@compareClusterResult$Cell_line, levels = c("WaGa", "MKL1"))
+
+p = dotplot(pyr_go_result, 
+            x = "time", 
+            font.size=22, 
+            size = "Count",
+            by = "p.adjust",
+            title = "Top Gene Ontolgy terms of pyrvinium Treated MCC Cell Lines") + 
+  facet_grid(~Cell_line) + 
+  scale_color_viridis(option = "viridis", direction = -1) +
+  scale_fill_viridis(option = "viridis", direction = -1) +
+  scale_x_discrete(limits = c("6h", "24h"))+
+  scale_size_area(max_size = 20)+
+  theme(strip.text.x = element_text(size = 22, face = "bold"),
+        axis.text.x = element_text(size = 22, face = "bold"),
+        axis.title = element_text(size = 22, face = "bold"),
+        text = element_text(size = 22, face = "bold"),
+        plot.title = element_text(hjust = 0.5, size = 30))
+p
+```
+
+## Performing KEGG pathway analysis on pyrvinium treated MCC cell lines
+
+### KEGG pathway analysis of UP regulated genes by pyrvinium treatment (24 hours)
+```{r, include=TRUE, echo=TRUE, fig.height=8, fig.width=12, warning=FALSE, message=FALSE}
+
+#For MKL1 24h ==================
+pyr_treated_MKL1_24h_sig_DEGs_up<-pyr_treated_sig_DEGs[pyr_treated_sig_DEGs$group == "up" & pyr_treated_sig_DEGs$Cell_line == "MKL1" &   pyr_treated_sig_DEGs$time == "24h",]
+pyr_treated_MKL1_24h_sig_FC_up<-pyr_treated_sig_DEGs[pyr_treated_sig_DEGs$group == "up" & pyr_treated_sig_DEGs$Cell_line == "MKL1" & 
+                                                       pyr_treated_sig_DEGs$time == "24h","logFC"]
+names(pyr_treated_MKL1_24h_sig_FC_up)<-pyr_treated_MKL1_24h_sig_DEGs_up$entrezgene_id
+
+pyr_kegg_MKL1_24h_result_up<-enrichKEGG(pyr_treated_MKL1_24h_sig_DEGs_up$entrezgene_id,
+                                pAdjustMethod = "BH",
+                                pvalueCutoff  = 0.05,
+                                qvalueCutoff  = 0.25
+)
+
+#print(head(pyr_kegg_MKL1_24h_result_up@result))
+
+edox_up_MKL1_24h<-setReadable(pyr_kegg_MKL1_24h_result_up, "org.Hs.eg.db", "ENTREZID")
+
+p_MKL1_24h_up<-enrichplot::cnetplot(edox_up_MKL1_24h,
+             foldChange = pyr_treated_MKL1_24h_sig_FC_up,
+             layout = "kk",
+             color_category = "#c6dbef",
+             cex_category = 2,
+             showCategory = 8,
+             cex_label_category = 1.2,
+             cex_label_gene = 1.2,
+             categortSize = "pvalue")+
+  scale_color_gradient2(name='fold change', midpoint = 4,  high='#de2d26', mid='#fc9272', low='#fff5f0')
+p_MKL1_24h_up<- p_MKL1_24h_up + theme(strip.text.x = element_text(size = 22, face = "bold"),
+                text = element_text(size = 22, face = "bold"))
+pdf(file = "/xdisk/mpadi/jiawenyang/result/merkel_cell/pp_in_mcc_paper/figure/pyrvinium_treated_MKL1_24h_upregulated_kegg_cnetplot.pdf", height = 8, width = 12)
+p_MKL1_24h_up
+dev.off()
+
+
+#For WaGa 24h ================
+pyr_treated_WaGa_24h_sig_DEGs_up<-pyr_treated_sig_DEGs[pyr_treated_sig_DEGs$group == "up" & pyr_treated_sig_DEGs$Cell_line == "WaGa" &   pyr_treated_sig_DEGs$time == "24h",]
+pyr_treated_WaGa_24h_sig_FC_up<-pyr_treated_sig_DEGs[pyr_treated_sig_DEGs$group == "up" & pyr_treated_sig_DEGs$Cell_line == "WaGa" & 
+                                                       pyr_treated_sig_DEGs$time == "24h","logFC"]
+names(pyr_treated_WaGa_24h_sig_FC_up)<-pyr_treated_WaGa_24h_sig_DEGs_up$entrezgene_id
+
+pyr_kegg_WaGa_24h_result_up<-enrichKEGG(pyr_treated_WaGa_24h_sig_DEGs_up$entrezgene_id,
+                                pAdjustMethod = "BH",
+                                pvalueCutoff  = 0.05,
+                                qvalueCutoff  = 0.25
+)
+
+#print(head(pyr_kegg_WaGa_24h_result_up@result))
+
+edox_up_WaGa_24h<-setReadable(pyr_kegg_WaGa_24h_result_up, "org.Hs.eg.db", "ENTREZID")
+
+p_WaGa_24h_up<-enrichplot::cnetplot(edox_up_WaGa_24h,
+             foldChange = pyr_treated_WaGa_24h_sig_FC_up,
+             layout = "kk",
+             color_category = "#c6dbef",
+             cex_category = 2,
+             showCategory = 8,
+             cex_label_category = 1.2,
+             cex_label_gene = 1.2,
+             categortSize = "pvalue")+
+  scale_color_gradient2(name='fold change', midpoint = 4,  high='#de2d26', mid='#fc9272', low='#fff5f0')
+p_WaGa_24h_up<- p_WaGa_24h_up + theme(strip.text.x = element_text(size = 22, face = "bold"),
+                text = element_text(size = 22, face = "bold"))
+
+p_WaGa_24h_up
+```
+
+### KEGG pathway analysis of DOWN regulated genes by pyrvinium treatment (24 hours)
+```{r, include=TRUE, echo=TRUE, fig.height=8, fig.width=12, message=FALSE, warning=FALSE}
+#For MKL1 24h ==================
+pyr_treated_MKL1_24h_sig_DEGs_down<-pyr_treated_sig_DEGs[pyr_treated_sig_DEGs$group == "down" & pyr_treated_sig_DEGs$Cell_line == "MKL1" &   pyr_treated_sig_DEGs$time == "24h",]
+pyr_treated_MKL1_24h_sig_FC_down<-pyr_treated_sig_DEGs[pyr_treated_sig_DEGs$group == "down" & pyr_treated_sig_DEGs$Cell_line == "MKL1" & 
+                                                       pyr_treated_sig_DEGs$time == "24h","logFC"]
+names(pyr_treated_MKL1_24h_sig_FC_down)<-pyr_treated_MKL1_24h_sig_DEGs_down$entrezgene_id
+
+pyr_kegg_MKL1_24h_result_down<-enrichKEGG(pyr_treated_MKL1_24h_sig_DEGs_down$entrezgene_id,
+                                pAdjustMethod = "BH",
+                                pvalueCutoff  = 0.05,
+                                qvalueCutoff  = 0.25
+)
+
+edox_down_MKL1_24h<-setReadable(pyr_kegg_MKL1_24h_result_down, "org.Hs.eg.db", "ENTREZID")
+
+p_MKL1_24h_down<-enrichplot::cnetplot(edox_down_MKL1_24h,
+             foldChange = pyr_treated_MKL1_24h_sig_FC_down,
+             layout = "kk",
+             color_category = "#edf8e9",
+             cex_category = 2,
+             showCategory = 8,
+             cex_label_category = 1.2,
+             cex_label_gene = 1.2,
+             categortSize = "pvalue")+
+  scale_color_gradient2(name='fold change', midpoint = -4, high='#deebf7', mid='#9ecae1', low='#08519c')
+p_MKL1_24h_down<- p_MKL1_24h_down + theme(strip.text.x = element_text(size = 22, face = "bold"),
+                text = element_text(size = 22, face = "bold"))
+
+p_MKL1_24h_down
+
+#For WaGa 24h ================
+pyr_treated_WaGa_24h_sig_DEGs_down<-pyr_treated_sig_DEGs[pyr_treated_sig_DEGs$group == "down" & pyr_treated_sig_DEGs$Cell_line == "WaGa" &   pyr_treated_sig_DEGs$time == "24h",]
+pyr_treated_WaGa_24h_sig_FC_down<-pyr_treated_sig_DEGs[pyr_treated_sig_DEGs$group == "down" & pyr_treated_sig_DEGs$Cell_line == "WaGa" & 
+                                                       pyr_treated_sig_DEGs$time == "24h","logFC"]
+names(pyr_treated_WaGa_24h_sig_FC_down)<-pyr_treated_WaGa_24h_sig_DEGs_down$entrezgene_id
+
+pyr_kegg_WaGa_24h_result_down<-enrichKEGG(pyr_treated_WaGa_24h_sig_DEGs_down$entrezgene_id,
+                                pAdjustMethod = "BH",
+                                pvalueCutoff  = 0.05,
+                                qvalueCutoff  = 0.25
+)
+
+edox_down_WaGa_24h<-setReadable(pyr_kegg_WaGa_24h_result_down, "org.Hs.eg.db", "ENTREZID")
+
+p_WaGa_24h_down<-enrichplot::cnetplot(edox_down_WaGa_24h,
+             foldChange = pyr_treated_WaGa_24h_sig_FC_down,
+             layout = "kk",
+             color_category = "#edf8e9",
+             cex_category = 2,
+             showCategory = 8,
+             cex_label_category = 1.2,
+             cex_label_gene = 1.2,
+             categortSize = "pvalue")+
+  scale_color_gradient2(name='fold change', midpoint = -3,  high='#deebf7', mid='#9ecae1', low='#08519c')
+p_WaGa_24h_down<- p_WaGa_24h_down + theme(strip.text.x = element_text(size = 22, face = "bold"),
+                text = element_text(size = 22, face = "bold"))
+
+p_WaGa_24h_down
+```
+
+### Visualizing the KEGG pathway genes with cnetplot for both cell lines
+```{r, include=TRUE, echo=TRUE, fig.height=14, fig.width=18, message=FALSE, warning=FALSE}
+pyr_kegg_result<-compareCluster(entrezgene_id~Cell_line+group,
+                                data = pyr_treated_sig_DEGs,
+                                fun = enrichKEGG,
+                                pAdjustMethod = "BH",
+                                pvalueCutoff  = 0.05,
+                                qvalueCutoff  = 0.25
+)
+
+datatable(data = pyr_kegg_result@compareClusterResult)
+
+edox<-setReadable(pyr_kegg_result, "org.Hs.eg.db", "ENTREZID")
+
+cnt_enrichment <- enrichplot::cnetplot(edox,
+                                       cex_gene = 1.5,
+                                       cex_label_gene = 1.2,
+                                       cex_label_category = 2,
+                                       colorEdge = T,
+                                       )+
+  theme(legend.text=element_text(size=10, face = "bold"),
+        legend.title = element_text(size=12, face = "bold"),
+        text = element_text(face = "bold", color = "black"))+
+  scale_fill_manual(values=c("MKL1.down"="#46B8DA", "MKL1.up"="#D43F3A", "WaGa.down"="#357EBD","WaGa.up" = "#EEA236"))+
+  scale_colour_manual(values=c("MKL1.down"="#46B8DA", "MKL1.up"="#D43F3A", "WaGa.down"="#357EBD", "WaGa.up" = "#EEA236"), 
+                      labels=c("MKL1.down", "MKL1.up", "WaGa.down", "WaGa.up"))
+
+cnt_enrichment
+```
+
+## Running viper to predict TFs activity on pyrvinium treated MCC RNAseq data and performing two samples ttest between conditions.
+```{r dorothea prior, include=TRUE, echo=TRUE}
+prior = dorothea_hs[dorothea_hs$confidence %in% c("A","B","C"),]
+regulon = df2regulon(prior)
+```
+
+```{r run_viper, echo=T, include=T, fig.width=20, fig.height=20}
+#WaGa cell treated with DMSO and pyrvinium 
+expr = readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/pyr_treated_mcc/Pyr_treatment_waga_realigned_normalized_edat.RDS")
+eset = expr[,-c(1:3)]
+vpres = viper(eset = eset, regulon = regulon, 
+              minsize = 10, nes = T, method = 'none', 
+              eset.filter = T, pleiotropy = F, verbose = F)
+
+res = rowTtest(x = vpres[,7:12],y = vpres[,1:6])
+padj = p.adjust(res$p.value,method = "BH")
+names(padj) = rownames(res$p.value)
+
+WaGa_pyr_vs_DMSO_vpres<-data.frame(TFs = rownames(res$statistic),`t_statistics` = res$statistic, `p.adjust` = padj, sign = sign(res$statistic))
+WaGa_pyr_vs_DMSO_vpres[WaGa_pyr_vs_DMSO_vpres$sign == "-1","sign"]<-"down"
+WaGa_pyr_vs_DMSO_vpres[WaGa_pyr_vs_DMSO_vpres$sign == "1","sign"]<-"up"
+
+df<-na.omit(WaGa_pyr_vs_DMSO_vpres)
+cols<-c("blue","firebrick")
+
+  p1 = ggplot(data = df, 
+              aes(x=reorder(TFs, log10(p.adjust)), y=-log10(p.adjust), color = sign, size = abs(t_statistics)*2),
+              label = gene)+
+    geom_point()+
+    scale_color_manual(values = cols)+
+    geom_text_repel(data = df, aes(label = TFs), size = sqrt(abs(df$t_statistics))*3, fontface = "bold", colour = ifelse(df$sign == "up", 'firebrick', 'blue'), force = 3, max.overlaps = 50) +
+    ylab(paste0("-log10(p.adjust)"))+
+    xlab("Transcription Factors")+
+    scale_x_discrete(expand = c(0.15,0))+
+    lims(y = c(0, 5.5))+
+    ggtitle("Transcritpion factors activity -  Pyrvinium vs. DMSO in WaGa cells ")+
+    theme(axis.text.x = element_blank(),
+          legend.position="none",
+          plot.title = element_text(size = 30, face = "bold"),
+          panel.background = element_blank(),
+          axis.line.y = element_line(),
+          #plot.margin = unit(c(1,1,1,1), "cm"),
+          axis.title.x = element_text(size=30, face="bold"),
+          axis.title.y = element_text(size=30, face="bold"),
+          axis.text.y = element_text(size=30, face="bold"))
+  
+  
+#MKL1 cell treated with DMSO and pyrvinium 
+expr = readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/pyr_treated_mcc/Pyr_treatment_MKL1_realigned_normalized_edat.RDS")
+eset = expr[,-c(1:3)]
+vpres = viper(eset = eset, regulon = regulon, 
+              minsize = 10, nes = T, method = 'none', 
+              eset.filter = T, pleiotropy = F, verbose = F)
+
+res = rowTtest(x = vpres[,7:12],y = vpres[,1:6])
+padj = p.adjust(res$p.value,method = "BH")
+names(padj) = rownames(res$p.value)
+
+MKL1_pyr_vs_DMSO_vpres<-data.frame(TFs = rownames(res$statistic),`t_statistics` = res$statistic, `p.adjust` = padj, sign = sign(res$statistic))
+
+MKL1_pyr_vs_DMSO_vpres[MKL1_pyr_vs_DMSO_vpres$sign == "-1","sign"]<-"down"
+MKL1_pyr_vs_DMSO_vpres[MKL1_pyr_vs_DMSO_vpres$sign == "1","sign"]<-"up"
+
+df<-na.omit(MKL1_pyr_vs_DMSO_vpres)
+cols<-c("blue","firebrick")
+
+  p2 = ggplot(data = df, 
+              aes(x=reorder(TFs, log10(p.adjust)), y=-log10(p.adjust), color = sign, size = abs(t_statistics)*2),
+              label = gene)+
+    geom_point()+
+    scale_color_manual(values = cols)+
+    geom_text_repel(data = df, aes(label = TFs), size = sqrt(abs(df$t_statistics))*3, fontface = "bold", colour = ifelse(df$sign == "up", 'firebrick', 'blue'), force = 3, max.overlaps = 50) +
+    ylab(paste0("-log10(p.adjust)"))+
+    xlab("Transcription Factors")+
+    scale_x_discrete(expand = c(0.15,0))+
+    lims(y = c(0, 3))+
+    ggtitle("Transcritpion factors activity -  Pyrvinium vs. DMSO in MKL1 cells ")+
+    theme(axis.text.x = element_blank(),
+          legend.position="none",
+          plot.title = element_text(size = 30, face = "bold"),
+          panel.background = element_blank(),
+          axis.line.y = element_line(),
+          #plot.margin = unit(c(1,1,1,1), "cm"),
+          axis.title.x = element_text(size=30, face="bold"),
+          axis.title.y = element_text(size=30, face="bold"),
+          axis.text.y = element_text(size=30, face="bold"))
+
+Viper_TF_activity_plot<-ggarrange(p1, p2,
+              ncol = 1,
+              nrow = 2
+) 
+Viper_TF_activity_plot
+```
+
+# Utilizing ARACNe-AP + VIPER to detect TF-activity in MCC datasets with MCC specific network
+
+## Preprocessing data as input for ARACNe-AP 
+```{r data preprocessing-1, include = T, echo = T}
+#Read GSE39612 data ============================================
+edat<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/renormalized_samples_edat_no_celllines.RDS")
+sample_list_renormalized<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/renormalized_samples_list_no_celllines.RDS")
+GSE39612_annotation<-readRDS(file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/GSE39612_annotation.RDS")
+
+MCC_tumor_matrix<-edat[ ,colnames(edat) %in% c(rownames(GSE39612_annotation[GSE39612_annotation$`tissue:ch1` == "Merkel cell carcinoma",]))]
+colnames(MCC_tumor_matrix)<-paste0("Sample", seq(1:30))
+
+MCC_tumor_matrix[, "gene"]<-rownames(MCC_tumor_matrix)
+MCC_tumor_matrix<-MCC_tumor_matrix[, c(31, 1:30)]
+```
+
+```{r data preprocessing-2, include = T, echo = T}
+#Read GSE39612 data ============================================
+MCC_tumor_matrix_vp<-edat[ ,colnames(edat) %in% c(rownames(GSE39612_annotation[GSE39612_annotation$`tissue:ch1` == "Merkel cell carcinoma",]))]
+MCC_tumor_matrix_vp<-MCC_tumor_matrix_vp[, colnames(MCC_tumor_matrix_vp) %in% c(rownames(GSE39612_annotation[GSE39612_annotation$`merkel cell polyomavirus status (dna and rna):ch1`=="positive",]))]
+
+colnames(MCC_tumor_matrix_vp)<-paste0("Sample", seq(1:13))
+MCC_tumor_matrix_vp[, "gene"]<-rownames(MCC_tumor_matrix_vp)
+MCC_tumor_matrix_vp<-MCC_tumor_matrix_vp[, c(14, 1:13)]
+```
+
+```{sh run aracne on HPC, eval = F, include = T, echo = T}
+#!/bin/bash
+
+DATA_PATH="/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/TF_activity/aracne"
+OUT_PATH="/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/TF_activity/aracne/output"
+ARACNE_PATH="/xdisk/mpadi/jiawenyang/bin/aracne/ARACNe-AP/dist"
+
+
+java -Xmx5G -jar ${ARACNE_PATH}/aracne.jar -e ${DATA_PATH}/mcc_tumor_matrix.txt  -o ${OUT_PATH} --tfs ${DATA_PATH}/tfs-hugo.txt --pvalue 1E-8 --seed 1 \
+--calculateThreshold
+
+for i in {1..100}
+do
+echo "performing ${i} of 100"
+java -Xmx5G -jar ${ARACNE_PATH}/aracne.jar -e ${DATA_PATH}/mcc_tumor_matrix.txt  -o ${OUT_PATH} --tfs ${DATA_PATH}/tfs-hugo.txt --pvalue 1E-8 --seed $i
+done
+
+java -Xmx5G -jar ${ARACNE_PATH}/aracne.jar -o ${OUT_PATH} --consolidate
+```
+
+```{sh slurm file for job submission, eval = F, include = T, echo = T}
+#!/bin/bash
+
+#SBATCH --job-name=ARACNe-AP_MCC_TUMOR_ALL
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem-per-cpu=16gb
+#SBATCH --time=4:00:00
+#SBATCH --partition=standard
+#SBATCH --account=mpadi
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=jiawenyang@arizona.edu
+date
+
+# load required modules
+module load ant
+
+# need to change the following path to your file
+cd /xdisk/mpadi/jiawenyang/bin/aracne
+
+
+#Rscript for r files
+sh run_aracne.sh
+
+date
+```
+
+```{r organize the ARACNe-AP output - MCC tumor all, eval = F, include = T, echo = T}
+network_mod<-read.table("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/TF_activity/aracne/output/network.txt", header = T)
+network_mod<-network_mod[,c(1:3)]
+write.table(network_mod, file ="/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/TF_activity/aracne/output/network_mod.txt", sep = "\t", quote = F, col.names = F, row.names = F)
+
+eset<-as.matrix(MCC_tumor_matrix[,c(2:31)])
+regulon<-aracne2regulon("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/TF_activity/aracne/output/network_mod.txt", eset, format = "3col")
+```
+
+## Applying ARACNe-AP to build TF-targets network for MCC virus positive tumor samples
+```{r organize the ARACNe-AP output - MCC tumor vp, eval = T, include = T, echo = T, warning=FALSE, message=FALSE}
+network_mod<-read.table("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/TF_activity/aracne/output_vp/network.txt", header = T)
+network_mod<-network_mod[,c(1:3)]
+write.table(network_mod, file ="/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/TF_activity/aracne/output_vp/network_mod.txt", sep = "\t", quote = F, col.names = F, row.names = F)
+
+eset<-as.matrix(MCC_tumor_matrix_vp[,c(2:14)])
+regulon<-aracne2regulon("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/TF_activity/aracne/output_vp/network_mod.txt", eset, format = "3col")
+```
+
+## Performing VIPER on WaGa pyrvinium treated samples
+```{r run viper in WaGa, echo=T, include=T, fig.width=20, fig.height=20, warning=FALSE, message=FALSE}
+DATA_DIR<-c("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/pyr_treated_mcc")
+FILES<-list.files(DATA_DIR, pattern = ".RDS", recursive = T, full.names = T)
+
+#WaGa cell treated with DMSO and pyrvinium 
+expr = readRDS(paste0(DATA_DIR, "/Pyr_treatment_waga_realigned_normalized_edat.RDS"))
+eset = expr[,-c(1:3)]
+eset = eset[, c(1:3, 7:9)]
+
+vpres = viper(eset = eset, regulon = regulon, 
+              minsize = 10, nes = T, method = 'none', 
+              eset.filter = T, pleiotropy = F, verbose = F)
+
+#WaGa pyrvinium vs.DMSO treated group.
+res = rowTtest(x = vpres[,4:6],y = vpres[,1:3])
+padj = p.adjust(res$p.value,method = "BH")
+names(padj) = rownames(res$p.value)
+
+WaGa_pyr_vs_DMSO_vpres<-data.frame(TFs = rownames(res$statistic),`t_statistics` = res$statistic, `p.adjust` = padj, sign = sign(res$statistic))
+WaGa_pyr_vs_DMSO_vpres[WaGa_pyr_vs_DMSO_vpres$sign == "-1","sign"]<-"down"
+WaGa_pyr_vs_DMSO_vpres[WaGa_pyr_vs_DMSO_vpres$sign == "1","sign"]<-"up"
+
+df<-na.omit(WaGa_pyr_vs_DMSO_vpres)
+cols<-c("blue","firebrick")
+
+#label gene of interests 
+
+label_genes<-c("NEUROD1","ASCL1","POU4F3","SOX10", "SOX11","HES1","HES6","SOX2","ATOH1",
+               "TCF3", "TCF4", "TCF7", "TCF7L1", "TCF7L2", "LEF1")
+
+df_label<-df[label_genes,]
+df_label<-na.omit(df_label)
+
+p1 = ggplot(data = df, 
+              aes(x=reorder(TFs, log10(p.adjust)), y=-log10(p.adjust), color = sign, size = abs(t_statistics)*2),
+              label = gene)+
+    geom_point()+
+    scale_color_manual(values = cols)+
+    geom_point()+
+    geom_label_repel(data = df_label, aes(label=df_label$TFs), size = 6, box.padding = 2, label.padding = 0.25, max.overlaps=Inf)+
+    ylab(paste0("-log10(p.adjust)"))+
+    xlab("Transcription Factors")+
+    scale_x_discrete(expand = c(0.15,0))+
+    lims(y = c(0, 5.5))+
+    geom_hline(yintercept=-1*log10(0.05),col="black", linetype=4)+
+    ggtitle("Transcritpion factors activity -  Pyrvinium vs. DMSO in WaGa cells ")+
+    theme(axis.text.x = element_blank(),
+          legend.position="none",
+          plot.title = element_text(size = 30, face = "bold"),
+          panel.background = element_blank(),
+          axis.line.y = element_line(),
+          #plot.margin = unit(c(1,1,1,1), "cm"),
+          axis.title.x = element_text(size=30, face="bold"),
+          axis.title.y = element_text(size=30, face="bold"),
+          axis.text.y = element_text(size=30, face="bold"))
+p1
+```
+
+## Performing VIPER on MKL1 pyrvinium treated samples
+```{r run viper in MKL1, echo=T, include=T, fig.width=20, fig.height=20}
+#MKL1 cell treated with DMSO and pyrvinium 
+expr = readRDS(paste0(DATA_DIR, "/Pyr_treatment_MKL1_realigned_normalized_edat.RDS"))
+eset = expr[,-c(1:3)]
+eset = eset[, c(1:3, 7:9)]
+
+vpres = viper(eset = eset, regulon = regulon, 
+              minsize = 10, nes = T, method = 'none', 
+              eset.filter = T, pleiotropy = F, verbose = F)
+
+#MKL1 pyrvinium vs.DMSO treated group.
+res = rowTtest(x = vpres[,4:6],y = vpres[,1:3])
+padj = p.adjust(res$p.value,method = "BH")
+names(padj) = rownames(res$p.value)
+
+MKL1_pyr_vs_DMSO_vpres<-data.frame(TFs = rownames(res$statistic),`t_statistics` = res$statistic, `p.adjust` = padj, sign = sign(res$statistic))
+
+MKL1_pyr_vs_DMSO_vpres[MKL1_pyr_vs_DMSO_vpres$sign == "-1","sign"]<-"down"
+MKL1_pyr_vs_DMSO_vpres[MKL1_pyr_vs_DMSO_vpres$sign == "1","sign"]<-"up"
+
+df<-na.omit(MKL1_pyr_vs_DMSO_vpres)
+cols<-c("blue","firebrick")
+
+#label gene of interests 
+
+label_genes<-c("NEUROD1","ASCL1","POU4F3","SOX10", "SOX11","HES1","HES6","SOX2","ATOH1",
+               "TCF3", "TCF4", "TCF7", "TCF7L1", "TCF7L2", "LEF1")
+
+df_label<-df[label_genes,]
+df_label<-na.omit(df_label)
+
+p2 = ggplot(data = df, 
+              aes(x=reorder(TFs, log10(p.adjust)), y=-log10(p.adjust), color = sign, size = abs(t_statistics)*2),
+              label = gene)+
+    geom_point()+
+    scale_color_manual(values = cols)+
+    geom_point()+
+    geom_label_repel(data = df_label, aes(label=df_label$TFs), size = 6, box.padding = 2, label.padding = 0.25, max.overlaps=Inf)+
+    ylab(paste0("-log10(p.adjust)"))+
+    xlab("Transcription Factors")+
+    scale_x_discrete(expand = c(0.15,0))+
+    lims(y = c(0, 5.5))+
+    geom_hline(yintercept=-1*log10(0.05),col="black", linetype=4)+
+    ggtitle("Transcritpion factors activity -  Pyrvinium vs. DMSO in MKL1 cells ")+
+    theme(axis.text.x = element_blank(),
+          legend.position="none",
+          plot.title = element_text(size = 30, face = "bold"),
+          panel.background = element_blank(),
+          axis.line.y = element_line(),
+          #plot.margin = unit(c(1,1,1,1), "cm"),
+          axis.title.x = element_text(size=30, face="bold"),
+          axis.title.y = element_text(size=30, face="bold"),
+          axis.text.y = element_text(size=30, face="bold"))
+p2
+```
+
+## Performing VIPER on IMR90 ER 48h and GFP 48h samples
+```{r IMR90 data, include=TRUE, echo=TRUE, fig.height=20, fig.width=20, warning=FALSE, message=FALSE}
+expr = readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_processed/IMR90_ER_GFP_normalized_edat.RDS")
+eset = expr[,c(25:27,54:56)]
+vpres = viper(eset = eset, regulon = regulon, 
+              minsize = 10, nes = T, method = 'none', 
+              eset.filter = T, pleiotropy = F, verbose = F)
+
+#IMR90 cell with ER and GFP
+res = rowTtest(x = vpres[,4:6],y = vpres[,1:3])
+padj = p.adjust(res$p.value,method = "BH")
+names(padj) = rownames(res$p.value)
+
+IMR90_ER_vs_GFP_vpres<-data.frame(TFs = rownames(res$statistic),`t_statistics` = res$statistic, `p.adjust` = padj, sign = sign(res$statistic))
+
+IMR90_ER_vs_GFP_vpres[IMR90_ER_vs_GFP_vpres$sign == "-1","sign"]<-"down"
+IMR90_ER_vs_GFP_vpres[IMR90_ER_vs_GFP_vpres$sign == "1","sign"]<-"up"
+
+df<-na.omit(IMR90_ER_vs_GFP_vpres)
+cols<-c("blue","firebrick")
+
+label_genes<-c("NEUROD1","ASCL1","POU4F3","SOX10", "SOX11","HES1","HES6","SOX2","ATOH1",
+               "TCF3", "TCF4", "TCF7", "TCF7L1", "TCF7L2", "LEF1")
+
+df_label<-df[label_genes,]
+df_label<-na.omit(df_label)
+
+p3 = ggplot(data = df, 
+              aes(x=reorder(TFs, log10(p.adjust)), y=-log10(p.adjust), color = sign, size = abs(t_statistics)*2),
+              label = gene)+
+    geom_point()+
+    scale_color_manual(values = cols)+
+    geom_point()+
+    geom_label_repel(data = df_label, aes(label=df_label$TFs), size = 6, box.padding = 2, label.padding = 0.25, max.overlaps=Inf)+
+    ylab(paste0("-log10(p.adjust)"))+
+    xlab("Transcription Factors")+
+    scale_x_discrete(expand = c(0.15,0))+
+    lims(y = c(0, 5.5))+
+    geom_hline(yintercept=-1*log10(0.05),col="black", linetype=4)+
+    ggtitle("Transcritpion factors activity -  IMR90 ER 48h samples vs. IMR90 GFP 48h samples ")+
+    theme(axis.text.x = element_blank(),
+          legend.position="none",
+          plot.title = element_text(size = 30, face = "bold"),
+          panel.background = element_blank(),
+          axis.line.y = element_line(),
+          #plot.margin = unit(c(1,1,1,1), "cm"),
+          axis.title.x = element_text(size=30, face="bold"),
+          axis.title.y = element_text(size=30, face="bold"),
+          axis.text.y = element_text(size=30, face="bold"))
+p3
+```
+
+```{r load_packages, message=FALSE, warning=FALSE, include=FALSE} 
+library(fontawesome)
+```  
+back to top [`r fa("arrow-circle-up", fill = "steelblue")`](#)
+
+**_[back to home]("/pyrvinium_in_MCC/index.html")_**

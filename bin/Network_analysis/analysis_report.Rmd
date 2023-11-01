@@ -1,0 +1,1960 @@
+---
+title: "Integrative analysis reveals therapeutic potential of pyrviniym pamoate in Merkel cell carcinoma"
+author: 
+    -  "Jiawen Yang"
+    -  "James Lim"
+    -  "Paul Victor"
+    -  "Chen Chen"
+    -  "Hunain Khwaja"
+    -  "Rick Schnellmann"
+    -  "Denise Roe"
+    -  "Prafulla Gokhale"
+    -  "James DeCaprio"
+    -  "Megha Padi (corresponding author)"
+date: "2023-10-31"
+discritpion: "The analysis report for the Merkel cell carcinoma and pyrvinium pamoate project"
+output: 
+  rmdformats::readthedown
+---
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 12px;
+  }
+td {  /* Table  */
+  font-size: 12px;
+}
+h1.title {
+  font-size: 32px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 24px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 20px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 12px;
+}
+</style>
+---
+**_[back to home]("/pyrvinium_in_MCC/index.html")_**
+
+# IMR90 WGCNA analysis
+
+```{r, load libraries, including=F, echo=T, warning=FALSE,message=FALSE}
+library(limma)
+library(edgeR)
+library(ggplot2)
+library(RColorBrewer)
+library(stringr)
+library(ggrepel)
+library(plotly)
+library(processx)
+library(biomaRt)
+library(WGCNA)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(ggpubr)
+library(dplyr)
+library(igraph)
+library(DT)
+library(networkD3)
+library(netZooR)
+library(ComplexHeatmap)
+library(corrplot)
+library(directlabels)
+```
+
+## Importing data to the environment
+```{r Import data to the environment, including=T, echo=T}
+#IMR90 normalized expression matrix =========
+df<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_wgcna/IMR90_edat.RDS")
+IMR90_ER_edat<-df[,grep("ER", colnames(df))]
+IMR90_GFP_edat<-df[,grep("GFP", colnames(df))]
+IMR90_ER_GFP_edat<-cbind(IMR90_GFP_edat, IMR90_ER_edat)
+```
+
+## IMR90 data processing 
+```{r IMR90 data processing, including=T, echo = T}
+#ER_samples =======================
+df_er<-df[, grep("ER", colnames(df))]
+
+df_er.pca = prcomp(t(df_er), center = TRUE, scale = TRUE)
+group_er<-factor(c(rep("ER_0", 3), rep("ER_4", 3), rep("ER_8", 3), 
+                   rep("ER_12", 3), rep("ER_16", 3), rep("ER_20", 3), 
+                   rep("ER_24", 3), rep("ER_32", 3), rep("ER_40", 2), rep("ER_48",3)),
+                   levels = c("ER_0", "ER_4", "ER_8", "ER_12", "ER_16", "ER_20",
+                              "ER_24", "ER_32", "ER_40", "ER_48"))
+
+df_er.plot=data.frame(df_er.pca$x[,1],df_er.pca$x[,2],group_er, rownames(df_er.pca$x))
+colnames(df_er.plot)=c("PC1","PC2","group_er","cond")
+rownames(df_er.plot)=rownames(df_er.pca$x)
+percentage_er <- round(df_er.pca$sdev / sum(df_er.pca$sdev) * 100, 2)
+percentage_er_lab <- paste(colnames(df_er.plot), "(", paste( as.character(percentage_er), "%", ")", sep=""))
+
+#GFP_samples =========================
+df_gfp<-df[, grep("GFP", colnames(df))]
+
+df_gfp.pca = prcomp(t(df_gfp), center = TRUE, scale = TRUE)
+group_gfp<-factor(c(rep("GFP_0", 3), rep("GFP_4", 2), rep("GFP_8", 3), 
+                   rep("GFP_12", 1), rep("GFP_16", 3), rep("GFP_20", 3), 
+                   rep("GFP_24", 3), rep("GFP_32", 3), rep("GFP_40", 3), rep("GFP_48",3)),
+                   levels = c("GFP_0", "GFP_4", "GFP_8", "GFP_12", "GFP_16", "GFP_20",
+                              "GFP_24", "GFP_32", "GFP_40", "GFP_48"))
+
+df_gfp.plot=data.frame(df_gfp.pca$x[,1],df_gfp.pca$x[,2],group_gfp, rownames(df_gfp.pca$x))
+colnames(df_gfp.plot)=c("PC1","PC2","group_gfp","cond")
+rownames(df_gfp.plot)=rownames(df_gfp.pca$x)
+percentage_gfp <- round(df_gfp.pca$sdev / sum(df_gfp.pca$sdev) * 100, 2)
+percentage_gfp_lab <- paste(colnames(df_gfp.plot), "(", paste( as.character(percentage_gfp), "%", ")", sep=""))
+```
+
+## Plotting 3D PCA plot of IMR90 ER and GFP samples
+```{r 3D PCA plot of IMR90 ER samples, includ=T, echo=T}
+tot_explained_variance_ratio_er <- summary(df_er.pca)[["importance"]]['Proportion of Variance',]
+tot_explained_variance_ratio_er<- 100 * sum(tot_explained_variance_ratio_er)
+
+tit_er<-paste0("Total Explained Variance = ", tot_explained_variance_ratio_er, "\n PCA of normalized IMR90 ER samples")
+
+components_er<-data.frame(df_er.pca$x[,1],df_er.pca$x[,2],df_er.pca$x[,3], group_er, rownames(df_er.pca$x))
+colnames(components_er)<-c("PC1","PC2", "PC3", "group_er", "sample_names")
+
+axx <- list(
+  title = paste0("PC1 (", percentage_er[1], ")" ))
+axy <- list(
+  title = paste0("PC2 (", percentage_er[2], ")" ))
+
+axz <- list(
+  title = paste0("PC3 (", percentage_er[3], ")" ))
+
+fig_er <- plot_ly(components_er, x = ~PC1, y = ~PC2, z = ~PC3, color = ~group_er, colors = c('#636EFA','#EF553B','#00CC96')) %>%
+  add_markers(size = 28)
+
+
+fig_er <- fig_er %>%
+  layout(
+    title = tit_er,
+    scene = list(bgcolor = "white", 
+                 xaxis=axx, 
+                 yaxis=axy, 
+                 zaxis=axz)
+    )
+
+fig_er
+```
+
+```{r 3D PCA plot of IMR90 GFP samples, include=TRUE}
+tot_explained_variance_ratio_gfp <- summary(df_gfp.pca)[["importance"]]['Proportion of Variance',]
+tot_explained_variance_ratio_gfp<- 100 * sum(tot_explained_variance_ratio_gfp)
+
+tit_gfp<-paste0("Total Explained Variance = ", tot_explained_variance_ratio_gfp, "\n PCA of normalized IMR90 GFP samples")
+
+components_gfp<-data.frame(df_gfp.pca$x[,1],df_gfp.pca$x[,2],df_gfp.pca$x[,3], group_gfp, rownames(df_gfp.pca$x))
+colnames(components_gfp)<-c("PC1","PC2", "PC3", "group_gfp", "sample_names")
+
+axx <- list(
+  title = paste0("PC1 (", percentage_gfp[1], ")" ))
+
+axy <- list(
+  title = paste0("PC2 (", percentage_gfp[2], ")" ))
+
+axz <- list(
+  title = paste0("PC3 (", percentage_gfp[3], ")" ))
+
+
+fig_gfp <- plot_ly(components_gfp, x = ~PC1, y = ~PC2, z = ~PC3, color = ~group_gfp, colors = c('#636EFA','#EF553B','#00CC96')) %>%
+  add_markers(size = 28)
+
+
+fig_gfp <- fig_gfp %>%
+  layout(
+    title = tit_gfp,
+    scene = list(bgcolor = "white",
+                 xaxis=axx, 
+                 yaxis=axy, 
+                 zaxis=axz))
+
+fig_gfp
+```
+
+## Diffierentially expressed genes analysis of IMR90 ER and GFP samples at 48h 
+```{r DEGs_48h_ER_GFP, include=TRUE}
+group_48h_DEGs<-factor(c(rep("GFP_48",3), rep("ER_48",3)), levels = c("GFP_48", "ER_48"))
+design<-model.matrix(~0 + group_48h_DEGs)
+IMR90_48h_ER_GFP<-df[,c(grep("GFP_48",colnames(df)), grep("ER_48", colnames(df)))]
+comparison = "group_48h_DEGsER_48 - group_48h_DEGsGFP_48"
+cont=makeContrasts(comparison,levels=design)
+fit=lmFit(IMR90_48h_ER_GFP,design)
+vfit=contrasts.fit(fit,contrasts=cont)
+efit<- eBayes(vfit)
+DEGs_48h<-topTreat(efit, sort.by = "P", n = Inf)
+DEGs_48h_sig_gene_list<-DEGs_48h[abs(DEGs_48h$logFC)>=0 & DEGs_48h$adj.P.Val <= 0.05,]
+IMR90_ER_sig_DEGs<-df[rownames(DEGs_48h_sig_gene_list), grep("ER", colnames(df))]
+```
+
+## Gene co-expression analysis by WGCNA with IMR90 ER samples
+```{r WGCNA, eval=F, include=TRUE, echo=TRUE}
+#Clustering by WGCNA (IMR90 48h ER vs.GFP DEGs with abs lfc > = 0 & padj <= 0.05,  total 10513 genes) 
+
+nettype = "signed"
+powers = c(c(1:10), seq(from = 12, to=20, by=2))
+IMR90_ER_expression_data<-IMR90_ER_sig_DEGs
+
+sft_ER=pickSoftThreshold(t(IMR90_ER_expression_data), dataIsExpr = TRUE, powerVector = powers, networkType = nettype, verbose = 5)
+
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot(sft_ER$fitIndices[,1], -sign(sft_ER$fitIndices[,3])*sft_ER$fitIndices[,2],
+     xlab="Soft Threshold (power)",ylab= paste0("Scale Free Topology Model Fit ", nettype, " R^2"), type="n",
+     main = paste("Scale independence"))+text(sft_ER$fitIndices[,1], -sign(sft_ER$fitIndices[,3])*sft_ER$fitIndices[,2],
+     labels=powers,cex=1,col="red")+abline(h=0.90,col="red")
+
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft_ER$fitIndices[,1], sft_ER$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity"))+text(sft_ER$fitIndices[,1], sft_ER$fitIndices[,5], labels=powers, cex=1, col="red")
+
+
+##Create co-expression matrix=========================
+cor <- WGCNA::cor
+net_ER = blockwiseModules(
+  t(IMR90_ER_expression_data),
+  power = 16 , #https://horvath.genetics.ucla.edu/html/CoexpressionNetwork/Rpackages/WGCNA/faq.html Q#6 or based on powerEstimate
+  TOMType = "signed", 
+  minModuleSize = 30,   # We like large modules, so we set the minimum module size relatively high
+  reassignThreshold = 0, 
+  mergeCutHeight = 0.25,
+  numericLabels = TRUE, 
+  pamRespectsDendro = FALSE,
+  saveTOMs = F,
+  verbose = 3
+)
+table(net_ER$colors)
+cor<-stats::cor
+```
+
+```{r load net_ER data, include=FALSE, echo = F}
+net_ER<-readRDS(file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_wgcna/WGCNA_net_ER.rds")
+sizeGrWindow(12,10)
+```
+
+### Gene modules analysis on IMR90 ER samples
+```{r visuzlize the network-1, include=TRUE, echo=TRUE, fig.width=5, fig.height=3, warning = F, message=F}
+IMR90_ER_expression_data<-IMR90_ER_sig_DEGs
+sizeGrWindow(12,10)
+moduleLabels = net_ER$colors
+mergedColors = labels2colors(net_ER$colors)
+plotDendroAndColors(net_ER$dendrograms[[1]], mergedColors[net_ER$blockGenes[[1]]],
+                    "Module colors",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+reference_df<-data.frame(gene = names(moduleLabels), number = unname(moduleLabels), color = mergedColors)
+
+MEs = net_ER$MEs;
+geneTree = net_ER$dendrograms[[1]];
+
+# Module identification using dynamic tree cut:
+minModuleSize = 30
+dynamicMods = cutreeDynamic(dendro = geneTree,
+                            deepSplit = 2, 
+                            pamRespectsDendro = FALSE,
+                            minClusterSize = minModuleSize);
+
+# Convert numeric lables into colors
+dynamicColors = labels2colors(dynamicMods)
+
+# Plot the dendrogram and colors underneath
+plotDendroAndColors(geneTree, dynamicColors, "Dynamic Tree Cut",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05,
+                    main = "Gene dendrogram and module colors")
+
+# Module-trait(timepoint) relationship for ER samples
+design_ER<-colnames(IMR90_ER_expression_data)
+design_ER<-unlist(lapply(design_ER, function(x) substring(x, 1, nchar(x)-2)))
+design_ER<-gsub("_48", "_t5",design_ER)
+design_ER<-gsub("_40", "_t5",design_ER)
+design_ER<-gsub("_32", "_t4",design_ER)
+design_ER<-gsub("_24", "_t4",design_ER)
+design_ER<-gsub("_20", "_t3",design_ER)
+design_ER<-gsub("_16", "_t3",design_ER)
+design_ER<-gsub("_12", "_t2",design_ER)
+design_ER<-gsub("_8", "_t2",design_ER)
+design_ER<-gsub("_4", "_t1",design_ER)
+design_ER<-gsub("_0", "_t1",design_ER)
+design_er = model.matrix(~0 + design_ER)
+colnames(design_er) = levels(as.factor(design_ER))
+
+moduleTraitCor = cor(MEs, design_er, method = "kendall")
+nSamples = ncol(t(IMR90_ER_expression_data))
+moduleTraitPvalue_fisher = corPvalueFisher(moduleTraitCor, nSamples) #Fisher's asymptotic p-value for correlation
+
+sizeGrWindow(10,6)
+# Display correlations and their p-values
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
+                   signif(moduleTraitPvalue_fisher, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(5, 5, 5, 5));
+
+# Display the correlation values within a heatmap
+colnames(MEs)<-substr(colnames(MEs), 3, nchar(colnames(MEs)))
+colnames(MEs)<-paste0("Module ", colnames(MEs))
+moduleTraitCor<-moduleTraitCor[,factor(c("ER_t1", "ER_t2", "ER_t3", "ER_t4", "ER_t5"), levels = c("ER_t1", "ER_t2", "ER_t3", "ER_t4", "ER_t5"))]
+rownames(moduleTraitCor)<-paste0("Module_", unlist(lapply(rownames(moduleTraitCor), function(x) substr(x, 3, nchar(x)))))
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               #xLabels = c("ER_0", "ER_early", "ER_middle", "ER_late"),
+               xLabels = c("ER_t1", "ER_t2", "ER_t3", "ER_t4", "ER_t5"),
+               yLabels = names(MEs),
+               ySymbols = names(MEs),
+               colorLabels = FALSE,
+               colors = blueWhiteRed(100),
+               textMatrix = textMatrix,
+               setStdMargins = T,
+               cex.text = 0.4,
+               zlim = c(-1,1),
+               main = paste("IMR90_ER: Module-time period relationships"))
+plotEigengeneNetworks(MEs, "", marDendro = c(0,4,1,2), marHeatmap = c(3,4,1,2), cex.lab = 0.8, xLabelsAngle = 30)
+```
+```{r, fig.align='center', out.width='700px', out.height="700px", include=TRUE, echo = F}
+knitr::include_graphics("/xdisk/mpadi/jiawenyang/result/merkel_cell/pp_in_mcc_paper/figure/IMR90_WGCNA_Module-time_period_relationships-kendall_rank.pdf")
+```
+```{r, fig.align='center', out.width='700px', out.height="750px", include=TRUE, echo = F}
+knitr::include_graphics("/xdisk/mpadi/jiawenyang/result/merkel_cell/pp_in_mcc_paper/figure/IMR90_WGCNA_Eigengene_adjacency_heatmap.pdf")
+```
+### Eigengene analysis on IMR90 ER samples
+```{r visuzlize the network-2, include=TRUE, echo=TRUE, fig.width=12, fig.height=8, warning = F, message=F}
+# 1. Performing Eigengene analysis on gene modules across time in IMR90 ER samples
+ER_time_point<-c("ER_0", "ER_4", "ER_8", 
+                 "ER_12", "ER_16", "ER_20", 
+                 "ER_24", "ER_32", "ER_40", 
+                 "ER_48")
+
+MEs_mean<-data.frame(modules = rownames(t(MEs)))
+for (i in 1:length(ER_time_point)){
+  time_point<-ER_time_point[i]
+  sub_df<-as.data.frame(t(MEs)[, grep(time_point, colnames(t(MEs)))])
+  sub_df[,"mean"]<-apply(sub_df, 1, mean)
+  df_mean<-as.data.frame(sub_df[, "mean"])
+  colnames(df_mean)<-time_point
+  MEs_mean<-cbind(MEs_mean, df_mean)
+}
+
+rownames(MEs_mean)<-MEs_mean$modules
+MEs_mean<-MEs_mean[,-1]
+MEs_mean_df<-reshape2::melt(as.matrix(MEs_mean))
+
+colnames(MEs_mean_df)<-c("Module", "time", "Eigengene")
+MEs_mean_df$time<-unlist(lapply(as.character(MEs_mean_df$time), function(x) strsplit(x, "_")[[1]][2]))
+MEs_mean_df$time<-as.numeric(MEs_mean_df$time)
+MEs_mean_df$Eigengene<-as.numeric(MEs_mean_df$Eigengene)
+
+theme<-theme(panel.background = element_blank(),
+             panel.border=element_rect(fill=NA),
+             panel.grid.major = element_blank(),
+             panel.grid.minor = element_blank(),
+             strip.background=element_blank(),
+             axis.text.x=element_text(colour="black"),
+             axis.text.y=element_text(colour="black"),
+             axis.ticks=element_line(colour="black"),
+             plot.margin=unit(c(1,1,1,1),"line"),
+             axis.title.x = element_text(color="black", size=20, face="bold"),
+             axis.title.y = element_text(color="black", size=20, face="bold"),
+             axis.text = element_text(size = 20, face = "bold"))
+
+for (i in 1:length(rownames(MEs_mean))){
+  module<-rownames(MEs_mean)[i]
+  df_module<-MEs_mean_df[MEs_mean_df$Module == module,]
+  p<-ggplot(df_module, 
+       aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)),
+           y=Eigengene, colour=Module, group=Module, fill=Module)) +
+  geom_line(size =0.1)+
+  geom_point(size=0.5)+
+  ylim(-0.4, 0.4)+
+  labs(x = 'time (h)', y = "Eigengene",title = 'Eigengenes of the each WGCNA modules')
+}
+
+# 2. Putting the dynamic Eigengene curve of each module into groups based on the distance of modules
+
+  p1<-ggplot(MEs_mean_df[MEs_mean_df$Module %in% c("Module 14", "Module 1", "Module 11"), ],
+      mapping = aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)), y=Eigengene, group = Module, fill = Module)) +
+  geom_line(aes(color=Module), size = 0.8)+
+  geom_point(size=2, shape = 21)+
+  scale_fill_brewer(palette = "Blues")+
+  scale_color_brewer(palette = "Blues")+
+  ylim(-0.4, 0.4)+
+  labs(x = 'time (h)', y = "Eigengene")
+
+  p1<-p1+theme
+
+  p2<-ggplot(MEs_mean_df[MEs_mean_df$Module %in% c("Module 13", "Module 5", "Module 10", "Module 12"), ],
+      mapping = aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)), y=Eigengene, group = Module, fill = Module)) +
+  geom_line(aes(color=Module), size = 0.8)+
+  geom_point(size=2, shape = 21)+
+  scale_fill_brewer(palette = "Greens")+
+  scale_color_brewer(palette = "Greens")+
+  ylim(-0.4, 0.4)+
+  labs(x = 'time (h)', y = "Eigengene")
+
+  p2<-p2+theme
+  
+  p3<-ggplot(MEs_mean_df[MEs_mean_df$Module %in% c("Module 4", "Module 3", "Module 8"), ],
+      mapping = aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)), y=Eigengene, group = Module, fill = Module)) +
+  geom_line(aes(color=Module), size = 0.8)+
+  geom_point(size=2, shape = 21)+
+  scale_fill_brewer(palette = "Oranges")+
+  scale_color_brewer(palette = "Oranges")+
+  ylim(-0.4, 0.4)+
+  labs(x = 'time (h)', y = "Eigengene")
+
+  p3<-p3+theme
+  
+  p4<-ggplot(MEs_mean_df[MEs_mean_df$Module %in% c("Module 6", "Module 9", "Module 7", "Module 2"), ],
+      mapping = aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)), y=Eigengene, group = Module, fill = Module)) +
+  geom_line(aes(color=Module), size = 0.8)+
+  geom_point(size=2, shape = 21)+
+  scale_fill_brewer(palette = "Purples")+
+  scale_color_brewer(palette = "Purples")+
+  ylim(-0.4, 0.4)+
+  labs(x = 'time (h)', y = "Eigengene")
+
+  p4<-p4+theme
+
+  WGCNA_Eigengenes_plot<-ggarrange(p1, p2, p3, p4, 
+              ncol = 2,
+              nrow = 2
+) 
+ WGCNA_Eigengenes_plot
+```
+
+```{r load_genemart, include = F, echo = F}
+genemart<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_wgcna/genemart.rds")
+```
+
+### GO-terms analysis on gene modules from IMR90 ER samples
+```{r organizing_genes_in_each_WGCNA_module_for_G0_TERMS_analysis, include=TRUE, echo=TRUE}
+probes = colnames(t(IMR90_ER_expression_data))
+g_list<-getBM(filters = "hgnc_symbol", 
+                       attributes= c("ensembl_gene_id","hgnc_symbol", "entrezgene_id"),values=probes,mart= genemart)
+gene_list<-list()
+for (i in 1:length(unique(moduleLabels))){
+  number<-unique(moduleLabels)[i]
+  module_name<-paste0("Module_", number)
+  modnumber<-probes[moduleLabels == number]
+  df_genes<-g_list[g_list$hgnc_symbol %in% modnumber,"ensembl_gene_id"]
+  gene_list[[module_name]]<-df_genes
+}
+
+gene_df<-list()
+module_name_list<-paste0("Module_", c(1:14))
+for (i in 1:14){
+  module_name<-module_name_list[i] #remove Module_0, since it's the module with genes that do not co-express with others
+  genes<-gene_list[[module_name]]
+  df_genes<-g_list[g_list$ensembl_gene_id %in% genes,]
+  df_genes<-df_genes[!duplicated(df_genes$hgnc_symbol),]
+  gene_df[[module_name]]<-df_genes
+}
+```
+
+```{r GO_term enrichment analysis, eval=FALSE, include=TRUE, echo=TRUE}
+##GO-Term enrichment based on WGCNA network================================
+WGCNA_modules_go_result<-list()
+for (i in 1:length(gene_df)){
+  module_name<-names(gene_df)[i]
+  genes<-gene_df[[module_name]]
+  genes<-genes$hgnc_symbol
+  em_ER_BP<-enrichGO(genes, 
+                     OrgDb = org.Hs.eg.db, 
+                     ont = "BP",
+                   pAdjustMethod = "BH", 
+                     pvalueCutoff = 0.05,
+                     qvalueCutoff = 0.25, 
+                     keyType = 'SYMBOL')
+ WGCNA_modules_go_result[[module_name]]<-em_ER_BP@result
+}
+```
+### Significant Go terms visualization for WGCNA modules
+```{r GO_TERMS_visualization, include=TRUE, echo=TRUE, fig.height=20, fig.width=40}
+WGCNA_modules_go_result<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_wgcna/IMR90_WGCNA_modules_go_result.RDS")
+
+color_pal<-c(brewer.pal(n = 3, "Blues"), brewer.pal(n = 4, "Greens"), brewer.pal(n = 3, "Oranges"), brewer.pal(n = 4, "Purples"))
+sig_go_results_list_order<-paste0("Module_", c(14,1,11,13,5,10,12,4,3,8,6,9,7,2))
+
+color_pal_new<-color_pal[c(1:9,11,13:14)]
+
+
+sig_go_results_df<-data.frame()
+for (i in 1:14){
+  module<-as.character(sig_go_results_list_order[i])
+  go_result<-WGCNA_modules_go_result[[module]]
+  go_result[,"module"]<-module
+  go_result<-go_result[go_result$p.adjust <= 0.05, ]
+  go_result<-go_result[order(as.numeric(go_result$p.adjust), decreasing = F), ][1:20,]
+  sig_go_results_df<-rbind(sig_go_results_df, go_result)
+}
+sig_go_results_df<-na.omit(sig_go_results_df)
+sig_go_results_df<-sig_go_results_df[!duplicated(sig_go_results_df$Description),]
+
+p<-ggplot(data=sig_go_results_df, aes(x=factor(Description, levels = sig_go_results_df$Description), y= -log10(p.adjust)), fill = module)+
+    geom_col(aes(fill = module), colour = "black", width=0.85, position=position_dodge(0.5)) +
+    theme(axis.text.x = element_text(size = 10, angle=90, vjust=.5, hjust=1, face = "bold"),
+           panel.background = element_blank(),
+           legend.position= c(0.13, 0.7),
+           legend.direction = "horizontal",
+           legend.title = element_text(colour="black", size=20, 
+                                    face="bold"),
+           legend.text = element_text(colour="black", size=15, 
+                                     face="bold"),
+           legend.background = element_rect(fill="grey90",
+                                  linewidth =0.5, linetype="solid"),
+           axis.text.y = element_text(size = 15, face = "bold"),
+           plot.title = element_text(size = 20, face = "bold"),
+           axis.title = element_text(size = 20, face = "bold"),
+           axis.line = element_line(colour = "black"))+
+     ylab("-log10(p.adjust)") + 
+     xlab("GO Terms")+
+     scale_y_continuous(breaks = seq(0, -log10(min(sig_go_results_df$p.adjust))*1.0, by = 5))+
+     scale_fill_manual(values=color_pal_new, limits = c(unique(sig_go_results_df$module)))+
+     scale_x_discrete(labels = function(x) str_wrap(x, width = 65))
+p
+```
+
+```{r zoomed in partial figures, include = T, echo = T, fig.width=35, fig.height =15}
+sig_go_result_df_1<-sig_go_results_df[sig_go_results_df$module %in% c("Module_14", "Module_1", "Module_11", "Module_13", "Module_5"), ]
+
+p_blue_green<-ggplot(data=sig_go_result_df_1, aes(x=factor(Description, levels = sig_go_result_df_1$Description), y= -log10(p.adjust)), fill = module)+
+    geom_col(aes(fill = module), colour = "black", width=0.85, position=position_dodge(0.5)) +
+    theme(axis.text.x = element_text(size = 25, angle=90, vjust=.5, hjust=1, face = "bold"),
+           panel.background = element_blank(),
+           legend.position= c(0.13, 0.7),
+           legend.direction = "horizontal",
+           legend.title = element_text(colour="black", size=20, 
+                                    face="bold"),
+           legend.text = element_text(colour="black", size=15, 
+                                     face="bold"),
+           legend.background = element_rect(fill="grey90",
+                                  linewidth =0.5, linetype="solid"),
+           axis.text.y = element_text(size = 20, face = "bold"),
+           plot.title = element_text(size = 20, face = "bold"),
+           axis.title = element_text(size = 20, face = "bold"),
+           axis.line = element_line(colour = "black"))+
+     ylab("-log10(p.adjust)") + 
+     xlab("GO Terms")+
+     scale_y_continuous(breaks = seq(0, -log10(min(sig_go_result_df_1$p.adjust))*1.0, by = 5))+
+     scale_fill_manual(values=color_pal_new, limits = c(unique(sig_go_result_df_1$module)))+
+     scale_x_discrete(labels = function(x) str_wrap(x, width = 65))
+p_blue_green
+```
+
+### Network centrality analysis and network visualization of gene modules from WGCNA
+```{r  centrality analysis-IMR90, include=TRUE, echo=TRUE, fig.width=14, fig.height=20}
+TOM = readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_wgcna/WGCNA_TOM.rds")
+probes = colnames(t(IMR90_ER_expression_data))
+dimnames(TOM)<-list(probes, probes)
+
+# 1.Selecting top hub genes from each gene module
+network_hub_list<-list()
+nTOM = 40 #top nodes from the WGCNA network
+for (i in 1:length(gene_df)){
+  module<-names(gene_df)[i]
+  genes<-gene_df[[module]][,"hgnc_symbol"]
+  m<-TOM[genes, genes]
+  hubs<-names(sort(rowSums(m), decreasing = T)[1:nTOM])
+  network_hub_list[[module]]<-hubs
+}
+
+network_hub_list # The top 40 hubs in each module
+
+# 2. Generating adjacency matrix for hub genes from all modules
+hub_genes<-unname(unlist(network_hub_list))
+hubs_m<-TOM[hub_genes, hub_genes]
+edges<-data.frame(from=rownames(hubs_m)[row(hubs_m)[upper.tri(hubs_m)]], 
+           to=colnames(hubs_m)[col(hubs_m)[upper.tri(hubs_m)]], 
+           value=hubs_m[upper.tri(hubs_m)])
+
+# 3. Setting up thredshold for selecting leading edges in the network
+leading_edges_ratio = 0.20 #top 1/5 edges based on edge weight.
+threshold = quantile(edges$value, probs=1-leading_edges_ratio , na.rm = FALSE)
+edges<-edges[edges$value >= threshold,]
+
+# 4. Organizing vertices data frame and edges data frame for the network
+vertices<-data.frame()
+for(i in 1:length(network_hub_list)){
+  module_name<-names(network_hub_list)[i]
+  v<-data.frame(name = network_hub_list[[i]], module = rep(module_name, nTOM), size = rep(8, nTOM))
+  vertices<-rbind(vertices, v)
+}
+
+vertices[,"group"]<-unlist(lapply(vertices$module, function(x) strsplit(x, "_")[[1]][2]))
+vertices[,"id"]<-rownames(vertices)
+
+# 5. Centrality analysis of hub genes co-expression network
+g<-graph_from_data_frame(edges, directed = F, vertices)
+eigenvector<-eigen_centrality(g)$vector
+betweenness<-betweenness(g)
+degree<-degree(g)
+closeness<-closeness(g)
+centralities <- cbind(degree, eigenvector, betweenness, closeness)
+centrality_df<-cbind(centralities, vertices$module)
+
+DT::datatable(centrality_df) #show centrality data of nodes for sorting
+
+# 6. Visualize the hub genes co-expression network
+edges[,"source"]<-vertices[match(edges$from, vertices$name), "id"]
+edges[,"target"]<-vertices[match(edges$to, vertices$name), "id"]
+edges$source<-as.numeric(edges$source)
+edges$target<-as.numeric(edges$target)
+
+edges<-data.frame(source = edges$source-1, target = edges$target-1, value = edges$value)
+vertices<-cbind(vertices, centralities)
+vertices[,"betweenness_sqrt"]<-sqrt(unlist(vertices$betweenness))
+
+color_df<-data.frame(color = color_pal, module = c(14,1,11,13,5,10,12,4,3,8,6,9,7,2))
+color_df<-color_df[order(as.numeric(sub("\\D+", "", color_df$module))),] #match the module color with previous figures.
+
+ColourScale <- 'd3.scaleOrdinal()
+            .domain(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"])
+           .range(["#9ECAE1", "#6A51A3", "#FDAE6B", "#FEE6CE", "#BAE4B3", "#F2F0F7", "#9E9AC8", "#E6550D", "#CBC9E2", "#74C476", "#3182BD", "#238B45", "#EDF8E9", "#DEEBF7"]);'
+
+fn<-forceNetwork(Links = edges, Nodes = vertices,
+                 Source = "source", Target = "target",
+                 Nodesize = "betweenness_sqrt", fontSize = 12,
+                 Value = "value", NodeID = "name",
+                 Group = "group", opacity = 1,
+                 legend = T, charge = -20, zoom = F,
+                 opacityNoHover = 1,
+                 colourScale= JS(ColourScale),
+                 linkWidth = JS("function(d) { return Math.cbrt(d.value)*0.4; }")
+                 )
+fn
+```
+
+```{r cleanEnv, include=F, echo=F}
+rm(list = ls())
+gc()
+```
+
+# IMR90 GRN analysis
+
+## Creating GRN for IMR90 ER (29 samples) and GFP (27 samples) (PANDA + LIONESS) 
+
+### Generating input data for creating PANDA network
+```{r Generating input data for creating PANDA network, eval=FALSE, include=TRUE, echo=TRUE}
+IMR90_normalized_exp<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_processed/IMR90_realigned_normalized_data.RDS")
+IMR90_ppi<-read.table("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/ppi_imr90.txt", sep = "\t", quote = "")
+IMR90_motif<-read.table("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/motif_imr90.txt", sep = "\t", quote = "")
+
+IMR90_ALL<-as.data.frame(IMR90_normalized_exp$E)
+IMR90_gene<-IMR90_normalized_exp$genes
+IMR90_gene<-IMR90_gene[,c("ensembl_gene_id", "hgnc_symbol")]
+
+IMR90_ALL[,"ensembl_gene_id"]<-rownames(IMR90_ALL)
+IMR90_ALL<-left_join(IMR90_ALL, IMR90_gene, by = "ensembl_gene_id")
+IMR90_ALL<-IMR90_ALL[!IMR90_ALL$hgnc_symbol == "",]
+IMR90_ALL<-IMR90_ALL[!duplicated(IMR90_ALL$hgnc_symbol),]
+IMR90_ALL<-IMR90_ALL[!is.na(IMR90_ALL$hgnc_symbol),]
+rownames(IMR90_ALL)<-IMR90_ALL$hgnc_symbol
+IMR90_ALL<-IMR90_ALL[IMR90_ALL$hgnc_symbol %in% unique(c(IMR90_motif$V1, IMR90_motif$V2)), ]
+IMR90_ALL<-IMR90_ALL[, 1:(ncol(IMR90_ALL)-2)]
+
+IMR90_ER<-IMR90_ALL[, grep("ER", colnames(IMR90_ALL))]
+#write.table(IMR90_ER, file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/IMR90_analysis/IMR90_ER.txt", sep = "\t", quote = F, row.names = F, col.names = F)
+
+IMR90_GFP<-IMR90_ALL[, grep("GFP", colnames(IMR90_ALL))]
+#write.table(IMR90_GFP, file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/IMR90_analysis/IMR90_GFP.txt", sep = "\t", quote = F, row.names = F, col.names = F)
+```
+
+### Running PANDA and LIONESS in matlab to create single sample netowrk for samples in ER and GFP group
+```{octave Running PANDA and LIONESS in matlab, eval=FALSE, echo = T, include = T}
+addpath(genpath('/home/u16/jiawenyang/Matlab/netZooM'))
+
+%set program parameters
+exp_file  = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/imr90_er.txt';
+motif_file = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/motif_imr90.txt';
+ppi_file = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/ppi_imr90.txt';
+panda_out = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/panda/imr90_er/IMR90_ER_panda.mat';%optional
+save_temp = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/panda/imr90_er/';
+TF_out = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/panda/imr90_er/TF_out.txt';
+GENE_out = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/panda/imr90_er/GENE_out.txt';
+alpha      = 0.1;
+
+%%
+fid = fopen(exp_file, 'r');
+headings = fgetl(fid);
+n = length(regexp(headings, '\t'));
+frewind(fid);
+Exp = textscan(fid, ['%s', repmat('%f', 1, n)], 'delimiter', '\t');
+fclose(fid);
+GeneNames = Exp{1};
+Exp = cat(2, Exp{2:end});
+[NumGenes, NumConditions] = size(Exp);
+fprintf('%d genes and %d conditions!\n', NumGenes, NumConditions);
+Exp = Exp'; %transpose expression matrix from gene-by-sample to sample-by-gene
+
+%%
+disp('Reading in motif data!');
+[TF, gene, weight] = textread(motif_file, '%s%s%f');
+TFNames = unique(TF);
+NumTFs = length(TFNames);
+[~,i] = ismember(TF, TFNames);
+[~,j] = ismember(gene, GeneNames);
+RegNet = zeros(NumTFs, NumGenes);
+RegNet(sub2ind([NumTFs, NumGenes], i, j)) = weight;
+fprintf('%d TFs and %d edges!\n', NumTFs, length(weight));
+
+%%
+disp('Reading in ppi data!');
+TFCoop = eye(NumTFs);
+if(~isempty(ppi_file))
+    [TF1, TF2, weight] = textread(ppi_file, '%s%s%f');
+    [~,i] = ismember(TF1, TFNames);
+    [~,j] = ismember(TF2, TFNames);
+    TFCoop(sub2ind([NumTFs, NumTFs], i, j)) = weight;
+    TFCoop(sub2ind([NumTFs, NumTFs], j, i)) = weight;
+    fprintf('%d PPIs!\n', length(weight));
+end
+
+%%
+%% ============================================================================
+%% Run PANDA
+%% ============================================================================
+disp('Computing coexpresison network:');
+tic; GeneCoReg = Coexpression(Exp); toc;
+
+disp('Normalizing Networks:');
+tic
+    RegNet = NormalizeNetwork(RegNet);
+    GeneCoReg = NormalizeNetwork(GeneCoReg);
+    TFCoop = NormalizeNetwork(TFCoop);
+toc
+disp('Running Panda algorithm:');
+tic; AgNet = PANDA(RegNet, GeneCoReg, TFCoop, alpha); toc;
+
+%%
+%save all panda out put
+
+if ~isempty(panda_out)
+    disp('Saving PANDA network!');
+    tic
+        [pathstr, name, ext] = fileparts(panda_out);
+        switch ext
+            case '.txt'
+                save(panda_out, 'AgNet', '-ascii');
+            case '.tsv'
+                save(panda_out, 'AgNet', '-ascii', '-tabs');
+            otherwise
+                save(panda_out, 'AgNet', '-v6');
+
+        end
+    toc
+end
+
+%%
+%save all temp files
+if ~isempty(save_temp)
+    disp('Saving the transposed expression matrix and normalized networks:');
+    if ~exist(save_temp, 'dir')
+        mkdir(save_temp);
+    end
+    tic
+        save(fullfile(save_temp, 'expression.transposed.mat'), 'Exp', '-v7.3');  % 2G+
+        save(fullfile(save_temp, 'motif.normalized.mat'), 'RegNet', '-v6');  % fast
+        save(fullfile(save_temp, 'ppi.normalized.mat'), 'TFCoop', '-v6');  % fast
+    toc
+end
+
+fout=fopen(TF_out,'w');
+fprintf(fout,'%s\n',string(TFNames));
+
+fout=fopen(GENE_out,'w');
+fprintf(fout,'%s\n',string(GeneNames));
+%%
+disp('All done!');
+disp(datestr(now));
+
+
+%% ============================================================================
+%% Load the PANDA outputs for LIONESS
+%% ============================================================================
+
+%set program parameters
+exp_file  = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/panda/imr90_er/expression.transposed.mat';
+motif_file = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/panda/imr90_er/motif.normalized.mat';
+ppi_file = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/panda/imr90_er/ppi.normalized.mat';
+panda_file = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/panda/imr90_er/IMR90_ER_panda.mat';
+save_dir   = '/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/lioness/imr90_er';  % output dir for LIONESS networks
+lib_path   = '/home/u16/jiawenyang/Matlab/netZooM';
+alpha      = 0.1;
+START      = 1;  % sample-of-interest starting from this index
+END        = -1;  % sample-of-interest ending to this index; use -1 to end at the last sample
+ascii_out  = 1;  % set to 1 if you prefer text output file instead of MAT-file
+disp(datestr(now));
+
+%%
+%AgNet = AgNet';
+
+%%
+disp('Reading in expression data!');
+tic
+    X = load(exp_file);
+    Exp = X.Exp;
+    [NumConditions, NumGenes] = size(Exp);  % transposed expression
+    fprintf('%d genes and %d conditions!\n', NumGenes, NumConditions);
+toc
+%%
+disp('Reading in motif data!');
+tic
+    X = load(motif_file);
+    RegNet = X.RegNet;
+toc
+%%
+disp('Reading in ppi data!');
+tic
+    X = load(ppi_file);
+    TFCoop = X.TFCoop;
+toc
+%%
+disp('Reading in PANDA network!');
+tic
+    X = load(panda_file);
+    AgNet = X.AgNet;
+toc
+    
+%% ============================================================================
+%% Run LIONESS
+%% ============================================================================
+addpath(genpath('/home/u16/jiawenyang/Matlab/netZooM'))
+      
+% Create the output folder if not exists
+if ~exist(save_dir, 'dir')
+    mkdir(save_dir);
+end
+
+%% Sample indexes to iterate
+if END == -1
+    indexes = START:NumConditions;
+else
+    indexes = START:END;
+end
+
+for i = indexes
+    fprintf('Running LIONESS for sample %d:\n', i);
+    idx = [1:(i-1), (i+1):NumConditions];  % all samples except i
+
+    disp('Computing coexpresison network:');
+    tic; GeneCoReg = Coexpression(Exp(idx,:)); toc;
+
+    disp('Normalizing Networks:');
+    tic; GeneCoReg = NormalizeNetwork(GeneCoReg); toc;
+
+    disp('Running PANDA algorithm:');
+    LocNet = PANDA(RegNet, GeneCoReg, TFCoop, alpha);
+    PredNet = NumConditions * (AgNet - LocNet) + LocNet;
+
+    disp('Saving LIONESS network:');
+    if ascii_out == 1
+        f = fullfile(save_dir, sprintf('lioness_%d.txt', i));
+        tic; save(f, 'PredNet', '-ascii'); toc;
+    else
+        f = fullfile(save_dir, sprintf('lioness_%d.mat', i));
+        tic; save(f, 'PredNet', '-v6'); toc;
+    end
+    fprintf('Network saved to %s\n', f);
+
+    clear idx GeneCoReg LocNet PredNet f; % clean up for next run
+end
+
+disp('All done!');
+disp(datestr(now));
+```
+And then, run the code above for IMR90-GFP samples.
+
+### Organizing the LIONESS outputs in R
+```{r eval=FALSE, include=TRUE, echo=TRUE}
+TF_order<-read.table("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/panda/imr90_er/TF_out.txt")
+Gene_order<-read.table("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/panda/imr90_er/GENE_out.txt")
+
+conditions<-c("er", "gfp")
+
+IMR90_lioness<-list()
+for (k in 1:length(conditions)){
+  condition<-conditions[k]
+  print(condition)
+  FILES<-list.files(path = paste0("./imr90_", condition, "/"), pattern = "*.txt", full.names = T)
+  mat_sample_er<-scan(FILES[1])
+  sample_matrix<-matrix(mat_sample_er, nrow = nrow(TF_order), ncol = nrow(Gene_order))
+  rownames(sample_matrix)<-TF_order$V1
+  colnames(sample_matrix)<-Gene_order$V1
+  tf_gene_lioness_weight<-reshape2::melt(sample_matrix)
+  colnames(tf_gene_lioness_weight)<-c("TF", "Gene", paste0(condition,"1"))
+  for (i in 2:length(FILES)){
+    id<-FILES[i]
+    id<-strsplit(id, "_")[[1]][3]
+    id<-strsplit(id, "[.]")[[1]][1]
+    mat<-scan(FILES[i])
+    matrix_i<-matrix(mat, nrow = nrow(TF_order), ncol = nrow(Gene_order))
+    rownames(matrix_i)<-TF_order$V1
+    colnames(matrix_i)<-Gene_order$V1
+    tf_gene_edges<-reshape2::melt(matrix_i)
+    df<-data.frame(v1 = tf_gene_edges[,3])
+    colnames(df)<-paste0(condition,id)
+    tf_gene_lioness_weight<-cbind(tf_gene_lioness_weight, df)
+  }
+  IMR90_lioness[[condition]]<-tf_gene_lioness_weight
+}
+saveRDS(IMR90_lioness, file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn/IMR90_lioness_R_output_organized.RDS")
+```
+
+### Organizing the lioness by time period
+```{r 5_time periods organization, eval=FALSE, include = T, echo = T}
+DATA_DIR<-c("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn")
+coldata<-data.frame(samples = colnames(IMR90_normalized_exp), order = as.character(c(1:27, 1:30, 1:24, 1:29)), group = c(rep("GFP", 27), rep("ST", 30), rep("TLT", 24), rep("ER", 29)))
+
+coldata_new<-coldata
+coldata_new[,"time"]<-unlist(lapply(coldata_new$samples, function(X) strsplit(X, "_")[[1]][2]))
+
+t1<-c(0,4)
+t2<-c(8,12)
+t3<-c(16, 20)
+t4<-c(24, 32)
+t5<-c(40, 48)
+
+time_list_5t_period<-list(t1 = t1, t2 = t2, t3 = t3, t4 = t4, t5 = t5)
+
+IMR90_lioness_t5_mean<-list()
+for (i in 1:length(IMR90_lioness)){
+  condition<-names(IMR90_lioness)[i]
+  df<-IMR90_lioness[[condition]]
+  time_period_mean<-IMR90_lioness$IMR90_lioness_gfp[,1:2]
+  for (k in 1:length(time_list_5t_period)){
+    time_points<-time_list_5t_period[[k]]
+    time_points_samples<-coldata_new[coldata_new$time %in% time_points, "samples"]
+    subdf<-df[, colnames(df) %in% time_points_samples]
+    average_value<-apply(subdf, 1, mean)
+    name<-names(time_list_5t_period)[k]
+    subdf<-as.data.frame(average_value)
+    colnames(subdf)<-name
+    time_period_mean<-cbind(time_period_mean, subdf)
+  }
+  IMR90_lioness_t5_mean[[condition]]<-time_period_mean
+}
+saveRDS(IMR90_lioness_t5_mean, file = paste0(DATA_DIR, "/IMR90_lioness_t5_period.RDS"))
+```
+
+## Detecting differential communities between ER and GFP for each time period (ALPACA)
+```{r ALPACA t5, eval=F, include = T, echo = TRUE}
+IMR90_lioness_t5_mean<-readRDS(file = paste0(DATA_DIR, "/IMR90_lioness_t5_period.RDS"))
+
+time_conditions2<-c("t1", "t2", "t3", "t4", "t5")
+for (i in 2:length(IMR90_lioness_t5_mean)){
+  exp_condition<-names(IMR90_lioness_t5_mean)[i]
+  exp_condition<-gsub("IMR90_lioness_", "", exp_condition)
+  conditioned_net<-IMR90_lioness_t5_mean[[i]]
+  for (k in 1:length(time_conditions2)){
+    time_condition<-time_conditions2[k]
+    conditioned_net_one_time<-conditioned_net[, c("TF", "Gene", time_condition)]
+    colnames(conditioned_net_one_time)<-c("TF", "Gene", "Score")
+    conditioned_net_one_time[,"V1"]<-IMR90_lioness_t5_mean$IMR90_lioness_gfp[,time_condition]
+    control_net_one_time<-conditioned_net_one_time[, c("TF", "Gene", "V1", "Score")]
+    colnames(control_net_one_time)<-c("TF", "Gene", "V1", "V2")
+    control_net_one_time[,c("V1", "V2")]<-log(exp(1)^control_net_one_time[,c("V1", "V2")]+1, base = exp(1)) #transform the edge weights so that avoid negative values
+    net.table<-as.data.frame(control_net_one_time)
+    netZooR::alpaca(net.table, file.stem = paste0(DATA_DIR, "/t5_period_transformed/",exp_condition, "_vs_gfp_",time_condition), verbose = T)
+  }
+}
+```
+
+### Generating sankey plot to visualize the dynamic of gene regulatory network modules
+```{r Combining GRN analysis result for sankey plot, include = T, echo = T, fig.width=8, fig.height = 6}
+DATA_DIR<-c("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_grn")
+# 1.Creating the function that used to create the plots
+sanktify <- function(x) {
+
+  # Create nodes DF with the unique sources & targets from input
+  nodes <- data.frame(unique(c(x$source,x$target)),stringsAsFactors=FALSE)
+  nodes$ID <- as.numeric(rownames(nodes)) - 1 # sankeyNetwork requires IDs to be zero-indexed
+  names(nodes) <- c("name", "ID")
+
+  # use dplyr join over merge since much better; in this case not big enough to matter
+  # Replace source & target in links DF with IDs
+  links <- inner_join(x, nodes, by = c("source"="name"))
+  links<- inner_join(links, nodes, by = c("target"="name"))
+  colnames(links)<-c("source", "target", "value", "source_ID", "target_ID")
+
+  # Create Sankey Plot
+  sank <- sankeyNetwork(
+    Links = links,
+    Nodes = nodes,
+    Source = "source_ID",
+    Target = "target_ID",
+    Value = "value",
+    NodeID = "name",
+    fontSize = 10,
+    nodeWidth = 40
+  )
+  return(sank)
+}
+
+# 2.Organizing the ALPACA outputs from different time periods for Sankey plot
+FILES<-list.files(path = paste0(DATA_DIR, "/t5_period_transformed"), 
+                  pattern = "*_ALPACA_final_memb.txt",
+                  full.names = T,
+                  recursive = T)
+
+alpaca_t5_period<-lapply(FILES, function(x) read.table(x, sep = "", quote = ""))
+names(alpaca_t5_period)<-c("t1", "t2", "t3","t4", "t5")
+
+alpaca_t5_period_df<-left_join(alpaca_t5_period$t1, alpaca_t5_period$t2, by = "V1")
+alpaca_t5_period_df<-left_join(alpaca_t5_period_df, alpaca_t5_period$t3, by = "V1")
+alpaca_t5_period_df<-left_join(alpaca_t5_period_df, alpaca_t5_period$t4, by = "V1")
+alpaca_t5_period_df<-left_join(alpaca_t5_period_df, alpaca_t5_period$t5, by = "V1")
+colnames(alpaca_t5_period_df)<-c("Gene", "t1", "t2", "t3", "t4", "t5")
+
+n = 30 #remove the modules whose size are less than 30
+remove_genes_list<-c()
+for (i in 1:5){
+  time_period<-paste0("t", i)
+  df<- as.data.frame(table(alpaca_t5_period_df[,time_period]))
+  module_number<-df[,1][df[,2] <= n]
+  remove_genes<-alpaca_t5_period_df[alpaca_t5_period_df[,time_period] %in% module_number, "Gene"]
+  remove_genes_list<-c(remove_genes_list, remove_genes)
+}
+
+alpaca_t5_period_df_new<-alpaca_t5_period_df[!alpaca_t5_period_df[, "Gene"] %in% remove_genes_list,]
+
+
+alpaca_t5_period_t1<-as.data.frame(table(alpaca_t5_period_df_new$t1))
+alpaca_t5_period_t2<-as.data.frame(table(alpaca_t5_period_df_new$t2))
+alpaca_t5_period_t3<-as.data.frame(table(alpaca_t5_period_df_new$t3))
+alpaca_t5_period_t4<-as.data.frame(table(alpaca_t5_period_df_new$t4))
+alpaca_t5_period_t5<-as.data.frame(table(alpaca_t5_period_df_new$t5))
+
+t1_to_t2<-data.frame()
+for (i in 1:length(unique(alpaca_t5_period_t1$Var1))){
+   from_node<-unique(alpaca_t5_period_t1$Var1)[i]
+   z<-data.frame()
+   for(k in 1:length(unique(alpaca_t5_period_t2$Var1))){
+     to_node<-unique(alpaca_t5_period_t2$Var1)[k]
+     value = nrow(alpaca_t5_period_df_new[alpaca_t5_period_df_new$t1 == from_node & alpaca_t5_period_df_new$t2 == to_node,])
+     df<-data.frame(source = paste0("t1_module_", from_node), target = paste0("t2_module_",to_node), value = value)
+     z = rbind(z, df)
+   }
+  t1_to_t2<-rbind(t1_to_t2, z)
+}
+
+t2_to_t3<-data.frame()
+for (i in 1:length(unique(alpaca_t5_period_t2$Var1))){
+   from_node<-unique(alpaca_t5_period_t2$Var1)[i]
+   z<-data.frame()
+   for(k in 1:length(unique(alpaca_t5_period_t3$Var1))){
+     to_node<-unique(alpaca_t5_period_t3$Var1)[k]
+     value = nrow(alpaca_t5_period_df_new[alpaca_t5_period_df_new$t2 == from_node & alpaca_t5_period_df_new$t3 == to_node,])
+     df<-data.frame(source = paste0("t2_module_", from_node), target = paste0("t3_module_",to_node), value = value)
+     z = rbind(z, df)
+   }
+  t2_to_t3<-rbind(t2_to_t3, z)
+}
+
+t3_to_t4<-data.frame()
+for (i in 1:length(unique(alpaca_t5_period_t3$Var1))){
+   from_node<-unique(alpaca_t5_period_t3$Var1)[i]
+   z<-data.frame()
+   for(k in 1:length(unique(alpaca_t5_period_t4$Var1))){
+     to_node<-unique(alpaca_t5_period_t4$Var1)[k]
+     value = nrow(alpaca_t5_period_df_new[alpaca_t5_period_df_new$t3 == from_node & alpaca_t5_period_df_new$t4 == to_node,])
+     df<-data.frame(source = paste0("t3_module_", from_node), target = paste0("t4_module_",to_node), value = value)
+     z = rbind(z, df)
+   }
+  t3_to_t4<-rbind(t3_to_t4, z)
+}
+
+t4_to_t5<-data.frame()
+for (i in 1:length(unique(alpaca_t5_period_t4$Var1))){
+   from_node<-unique(alpaca_t5_period_t4$Var1)[i]
+   z<-data.frame()
+   for(k in 1:length(unique(alpaca_t5_period_t5$Var1))){
+     to_node<-unique(alpaca_t5_period_t5$Var1)[k]
+     value = nrow(alpaca_t5_period_df_new[alpaca_t5_period_df_new$t4 == from_node & alpaca_t5_period_df_new$t5 == to_node,])
+     df<-data.frame(source = paste0("t4_module_", from_node), target = paste0("t5_module_",to_node), value = value)
+     z = rbind(z, df)
+   }
+  t4_to_t5<-rbind(t4_to_t5, z)
+}
+
+t_all<-Reduce(bind_rows, list(t1_to_t2, t2_to_t3, t3_to_t4, t4_to_t5))
+sanktify(t_all)
+```
+
+### Applying threshold to gene modules and performing go enrichment analysis on gene modules from different time periods
+```{r GO enrichment for t5 transformed ALPACA result, eval = FALSE, include=T, echo=T}
+time_points<-c("t1", "t2", "t3", "t4", "t5")
+ER_modules_enrichment_result_t5<-list()
+for (i in 1:5){
+  time_point<-time_points[i]
+  alpaca_community<-read.table(FILES[i], sep = "", quote = "")
+  alpaca_community<-alpaca_t5_period_df_new[,c("Gene", time_point)]
+  alpaca_community[,"gene"]<-unlist(lapply(alpaca_community[,"Gene"], function(x) strsplit(x, "_")[[1]][1]))
+  alpaca_community[,"type"]<-unlist(lapply(alpaca_community[,"Gene"], function(x) strsplit(x, "_")[[1]][2]))
+  alpaca_community<-alpaca_community[,c("gene", "type", time_point)]
+  colnames(alpaca_community)<-c("gene", "type", "community")
+  ER_modules_enrichment_result<-list()
+    for (k in 1:length(unique(alpaca_community$community))){
+      module<-unique(alpaca_community$community)[k]
+      gene_list<-alpaca_community[alpaca_community$community == module, "gene"]
+      label<-paste0("er_vs_gfp_",time_point, "_module_", module)
+      print(label)
+      if (length(gene_list) < 10){
+        print(gene_list) 
+        print("There are too few genes in the list to perform enrichment analysis")
+      }
+      else {
+        ER_BP<-enrichGO(gene_list, 
+                         OrgDb = org.Hs.eg.db, 
+                         ont = "BP",
+                         pAdjustMethod = "BH", 
+                         pvalueCutoff = 0.05,
+                         qvalueCutoff = 0.25, 
+                         keyType = 'SYMBOL')
+        #datatable(ER_BP@result)
+        ER_modules_enrichment_result[[label]]<-ER_BP@result
+      }
+     }
+ ER_modules_enrichment_result_t5<-c(ER_modules_enrichment_result_t5, ER_modules_enrichment_result)
+}
+```
+
+
+```{r GO enrichment for t5 transformed ALPACA result-simplified, eval = FALSE, include=T, echo=T}
+time_points<-c("t1", "t2", "t3", "t4", "t5")
+ER_modules_enrichment_result_t5_simplified<-list()
+for (i in 1:5){
+  time_point<-time_points[i]
+  alpaca_community<-read.table(FILES[i], sep = "", quote = "")
+  alpaca_community<-alpaca_t5_period_df_new[,c("Gene", time_point)]
+  alpaca_community[,"gene"]<-unlist(lapply(alpaca_community[,"Gene"], function(x) strsplit(x, "_")[[1]][1]))
+  alpaca_community[,"type"]<-unlist(lapply(alpaca_community[,"Gene"], function(x) strsplit(x, "_")[[1]][2]))
+  alpaca_community<-alpaca_community[,c("gene", "type", time_point)]
+  colnames(alpaca_community)<-c("gene", "type", "community")
+  ER_modules_enrichment_result<-list()
+    for (k in 1:length(unique(alpaca_community$community))){
+      module<-unique(alpaca_community$community)[k]
+      gene_list<-alpaca_community[alpaca_community$community == module, "gene"]
+      label<-paste0("er_vs_gfp_",time_point, "_module_", module)
+      print(label)
+      if (length(gene_list) < 10){
+        print(gene_list) 
+        print("There are too few genes in the list to perform enrichment analysis")
+      }
+      else {
+        ER_BP<-enrichGO(gene_list, 
+                         OrgDb = org.Hs.eg.db, 
+                         ont = "BP",
+                         pAdjustMethod = "BH", 
+                         pvalueCutoff = 0.05,
+                         qvalueCutoff = 0.25, 
+                         keyType = 'SYMBOL')
+        #datatable(ER_BP@result)
+        ER_BP_simplified<-clusterProfiler::simplify(ER_BP, cutoff = 0.5, by = "p.adjust", select_fun = min)
+        ER_modules_enrichment_result[[label]]<-ER_BP_simplified@result
+      }
+     }
+ ER_modules_enrichment_result_t5_simplified<-c(ER_modules_enrichment_result_t5_simplified, ER_modules_enrichment_result)
+}
+```
+
+### Selecting top terms from the GO TERM analysis result in each gene module
+
+```{r load_ER_modules_t5_gene_lists, include = F, echo = F}
+ER_modules_enrichment_result_t5<-readRDS(paste0(DATA_DIR, "/IMR90_ER_GFP_lioness_alpaca_transformed_t5_GO_enrichment_applying_threshold.RDS"))
+```
+```{r t5_gene_lists, include = T, echo = T}
+ER_modules_enrichment_result_t5_sig<-list()
+for (i in 1:length(ER_modules_enrichment_result_t5)){
+  condition<-names(ER_modules_enrichment_result_t5)[i]
+  go_result<-ER_modules_enrichment_result_t5[[condition]]
+  go_result<-go_result[go_result$p.adjust <= 0.05, ]
+  go_result<-go_result[order(go_result$p.adjust, decreasing = F), ][1:100,]
+  go_result<-go_result[order(go_result$Count, decreasing = T), ][1:15,]
+  go_result<-go_result[order(go_result$p.adjust, decreasing = T), ][1:10,]
+  go_result<-go_result[go_result$Description != "<NA>",]
+  go_result<-na.omit(go_result)
+  if (is.na(go_result[1,"ID"]) == "FALSE") {
+  ER_modules_enrichment_result_t5_sig[[condition]]<-go_result}
+}
+
+
+#t5 module 1
+DT::datatable(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t5_module_1)
+
+#t4 module 1
+DT::datatable(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t4_module_1)
+
+#t3 module 1
+DT::datatable(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t3_module_1)
+
+
+#t2 module 1
+DT::datatable(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t2_module_1)
+
+#t1 module 1
+DT::datatable(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t1_module_1)
+```
+
+See attached supplemental table for enriched go terms in all modules from different time periods : ER_modules_enrichment_result_t5_sig.xlsx
+
+```{r d3wordcloud to show the GO term analysis result, eval = F, include=F, echo=F}
+#Visualize the GO_term with d3wordcloud
+# generate d3wordcloud object for individual module of genes for significant GO terms
+color_list<-c("#4E82B7", "#BBCCE8", "#F09249", "#77342F", "#76506E", "#797A5C", 
+              "#68C2D1", "#4E82B8", "#F0924A", "#F5C38D", "#62A850", "#C8B8D6",
+              "#EFC0D7", "#CCCDCD", "#C2C357", "#DDDD9F", "#68C2D2", "#4E82B7", "#9878BF",
+              "#D98AC4", "#BCCCE8")
+
+d3wordcloud(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t5_module_1$Description, (-log(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t5_module_1$p.adjust, 2))^(1/2), colors = color_list[1], rotate.min = 0, rotate.max = 0, spiral = "rectangular")
+
+
+d3wordcloud(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t4_module_1$Description, (-log(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t4_module_1$p.adjust, 2))^(1/2), colors = color_list[4], rotate.min = 0, rotate.max = 0, spiral = "rectangular")
+
+d3wordcloud(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t3_module_1$Description, (-log(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t3_module_1$p.adjust, 2))^(1/2), colors = color_list[13], rotate.min = 0, rotate.max = 0, spiral = "rectangular")
+
+
+d3wordcloud(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t2_module_1$Description, (-log(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t2_module_1$p.adjust, 2))^(1/2), colors = color_list[17], rotate.min = 0, rotate.max = 0, spiral = "rectangular")
+
+d3wordcloud(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t1_module_1$Description, (-log(ER_modules_enrichment_result_t5_sig$er_vs_gfp_t1_module_1$p.adjust, 2))^(1/2), colors = color_list[18], rotate.min = 0, rotate.max = 0, spiral = "rectangular")
+```
+
+```{r clean environment2, include=FALSE, echo = F}
+rm(list = ls())
+gc()
+```
+
+# Network analyses in GSE39612 (MCC tumor dataset)
+
+## Importing data
+```{r import data-gse39612, include=TRUE, echo=TRUE}
+#Read GSE39612 data ============================================
+edat<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/renormalized_samples_edat_no_celllines.RDS")
+sample_list_renormalized<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/renormalized_samples_list_no_celllines.RDS")
+GSE39612_annotation<-readRDS(file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/GSE39612_annotation.RDS")
+MCC_tumor_matrix<-edat[ ,colnames(edat) %in% c(rownames(GSE39612_annotation[GSE39612_annotation$`tissue:ch1` == "Merkel cell carcinoma",]))]
+```
+
+## Performing DEG analysis on normal skin samples and MCC tumor samples
+```{r DEGs for normal vs.MCC tumor samples, eval = T, include=TRUE, echo=TRUE}
+#DEGs for normal vs. MCC tumor samples ============================================
+group<-factor(c(rep("normal", 64),  rep("tumor", 30)))
+names(group)<-sample_list_renormalized$ID
+design = model.matrix(~0 + group)
+comparison = "grouptumor-groupnormal"
+cont=makeContrasts(comparison,levels=design)
+fit=lmFit(edat,design)
+fit=contrasts.fit(fit,contrasts=cont)
+tfit=treat(fit)
+efit=eBayes(tfit)
+tdf=topTable(efit,coef=1, n = Inf, adjust = "BH")
+```
+
+## Performing GO term over-representation analysis on DEGs from normal skin vs. MCC tumors comparison
+```{r GO_enrichment_analysis, eval = F, include = T, echo = T}
+gse39612_mcc.vs.normal_sig<-tdf[abs(tdf$logFC) >=1 & abs(tdf$adj.P.Va) <= 0.05,]
+genes<-rownames(gse39612_mcc.vs.normal_sig)
+go_term<-enrichGO(genes,
+                  OrgDb = org.Hs.eg.db, 
+                  ont='BP',
+                  pAdjustMethod = 'BH',
+                  pvalueCutoff = 0.05, 
+                  qvalueCutoff = 0.25,
+                  keyType = 'SYMBOL')
+df<-go_term@result
+```
+
+### Plotting enriched go terms
+```{r plot GO_enrichment_result-gse39612, include=TRUE, echo=TRUE, fig.height=12, fig.width=10}
+go_term<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/GSE39612_tumor_vs_normal_GO_enrichment_result.rds")
+p<-dotplot(go_term, showCategory = 20, font.size = 20, x = "Count")
+print(p)
+```
+
+### Plotting heatmap for Wnt signaling pathway genes from DEGs
+```{r generating heatmap, include=TRUE, echo=TRUE, fig.width=15, fig.height=25}
+wnt_signaling_genes<-strsplit(go_term@result[go_term@result$Description == "Wnt signaling pathway","geneID"][1], "/")[[1]]
+wnt_signaling_genes_scaled<-t(scale(t(edat[wnt_signaling_genes, sample_list_renormalized$ID])))
+wnt_signaling_genes_scaled<-na.omit(wnt_signaling_genes_scaled)
+
+GSE39612_annotation<-GSE39612_annotation[sample_list_renormalized$ID,]
+GSE39612_annotation<-GSE39612_annotation[,c("tissue:ch1", "merkel cell polyomavirus status (dna and rna):ch1", "metastasis, primary, or cell line:ch1")]
+colnames(GSE39612_annotation)<-c("group", "MCPyV_status", "MCC_status")
+GSE39612_annotation$MCPyV_status[!GSE39612_annotation$MCPyV_status %in% c("negative", "positive")]<-"not_available"
+GSE39612_annotation$MCC_status[!GSE39612_annotation$MCC_status %in% c("primary tumor", "metastatic tumor")]<-"not_available"
+
+annotation_GSE39612_WNT = HeatmapAnnotation(
+  group = GSE39612_annotation$group,
+  MCC_status = GSE39612_annotation$MCC_status,
+  MCPyV_status = GSE39612_annotation$MCPyV_status,
+  col = list(group= c(`normal skin` = "#B7C9F3", `Merkel cell carcinoma` = "#A4312A"),
+             MCC_status = c(`not_available` = "#C9CFD0", `metastatic tumor` = "#C47BFC", `primary tumor` = "#01BDC2"),
+             MCPyV_status = c(`not_available` = "#C9CFD0", `negative` = "#CCFF99", `positive` = "#FF8000")
+  ),
+  simple_anno_size = unit(4, "mm"),
+  annotation_name_gp= gpar(fontsize = 10, fontface = "bold", col = "black"))
+
+group_column_GSE39612 = factor(GSE39612_annotation$group, levels = c("normal skin", "Merkel cell carcinoma"))
+
+Heatmap(wnt_signaling_genes_scaled,
+        heatmap_legend_param = list(title = "Z-scored", title_position = "topleft", legend_height = unit(8, "cm"), legend_direction = "vertical"),
+        row_title = "genes",
+        cluster_columns = cluster_within_group(wnt_signaling_genes_scaled, group_column_GSE39612),
+        column_dend_side = "top",
+        show_column_dend = T,
+        column_title = "GSE39612 samples",
+        show_column_names = F,
+        column_title_side = "top",
+        column_title_gp = gpar(fontsize = 18, fontface = "bold", col="black"),
+        row_names_gp = gpar(fontsize = 10, fontface = "bold"),
+        top_annotation = annotation_GSE39612_WNT,
+        width = ncol(wnt_signaling_genes_scaled)*unit(3, "mm"), 
+        height = nrow(wnt_signaling_genes_scaled)*unit(3, "mm"),
+        border = T
+)
+```
+
+
+## Performing WGCNA on MCC tumor samples 
+```{r WGCNA analysis of MCC tumor data, eval= F, echo=TRUE, include=TRUE}
+nettype = "signed"
+powers = c(c(1:10), seq(from = 12, to=20, by=2))
+
+MCC_expression_data<-edat[, rownames(GSE39612_annotation[GSE39612_annotation$group=="Merkel cell carcinoma",])]
+
+sft_MCC=pickSoftThreshold(t(MCC_expression_data), dataIsExpr = TRUE, powerVector = powers, networkType = nettype, verbose = 5)
+
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot(sft_MCC$fitIndices[,1], -sign(sft_MCC$fitIndices[,3])*sft_MCC$fitIndices[,2],
+     xlab="Soft Threshold (power)",ylab= paste0("Scale Free Topology Model Fit ", nettype, " R^2"), type="n",
+     main = paste("Scale independence"))+text(sft_MCC$fitIndices[,1], -sign(sft_MCC$fitIndices[,3])*sft_MCC$fitIndices[,2],
+     labels=powers,cex=1,col="red")+abline(h=0.90,col="red")
+
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft_MCC$fitIndices[,1], sft_MCC$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity"))+text(sft_MCC$fitIndices[,1], sft_MCC$fitIndices[,5], labels=powers, cex=1, col="red")
+
+##Create co-expression matrix=========================
+cor <- WGCNA::cor
+net_MCC = blockwiseModules(
+  t(MCC_expression_data),
+  power = 16 , #https://horvath.genetics.ucla.edu/html/CoexpressionNetwork/Rpackages/WGCNA/faq.html Q#6 or based on powerEstimate
+  TOMType = "signed", 
+  minModuleSize = 30,   # We like large modules, so we set the minimum module size relatively high
+  reassignThreshold = 0, 
+  mergeCutHeight = 0.25,
+  numericLabels = TRUE, 
+  pamRespectsDendro = FALSE,
+  saveTOMs = F,
+  verbose = 3
+)
+table(net_MCC$colors)
+cor<-stats::cor
+```
+
+### Calculating co-expressed gene modules
+```{r visuzlize the network-1-gse39612, include=TRUE, echo=TRUE, fig.width=10, fig.height=8}
+MCC_expression_data<-edat[, rownames(GSE39612_annotation[GSE39612_annotation$group=="Merkel cell carcinoma",])]
+net_MCC<-readRDS(file = "/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/WGCNA_net_mcc.rds")
+
+moduleLabels = net_MCC$colors
+MEs = net_MCC$MEs;
+
+# plot Eigengene adjacency heatmap
+plotEigengeneNetworks(MEs, "", marDendro = c(0,4,1,2), marHeatmap = c(3,4,1,2), cex.lab = 0.8, xLabelsAngle = 30)
+```
+
+
+### Performing GO-terms analysis on each gene module from MCC tumor samples
+```{r organizing_genes_in_each_WGCNA_module_for_G0_TERMS_analysis-gse39612, include=TRUE, echo=TRUE}
+#1.Organizing genes in each WGCNA module for GO-term analysis
+genemart<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_wgcna/genemart.rds")
+probes = colnames(t(MCC_expression_data))
+g_list<-getBM(filters = "hgnc_symbol", 
+                       attributes= c("ensembl_gene_id","hgnc_symbol", "entrezgene_id"),values=probes,mart= genemart)
+gene_list<-list()
+for (i in 1:length(unique(moduleLabels))){
+  number<-unique(moduleLabels)[i]
+  module_name<-paste0("Module_", number)
+  modnumber<-probes[moduleLabels == number]
+  df_genes<-g_list[g_list$hgnc_symbol %in% modnumber,"ensembl_gene_id"]
+  gene_list[[module_name]]<-df_genes
+}
+
+gene_df<-list()
+module_name_list<-paste0("Module_", c(1:14))
+for (i in 1:14){
+  module_name<-module_name_list[i] #remove Module_0, since it's the module with genes that do not co-express with others
+  genes<-gene_list[[module_name]]
+  df_genes<-g_list[g_list$ensembl_gene_id %in% genes,]
+  df_genes<-df_genes[!duplicated(df_genes$hgnc_symbol),]
+  gene_df[[module_name]]<-df_genes
+}
+```
+
+```{r GO_term enrichment analysis-gse39612, eval=FALSE, include=TRUE, echo=TRUE}
+#2. Performing GO-term over-representation analysis on genes in each module
+WGCNA_modules_go_result<-list()
+for (i in 1:length(gene_df)){
+  module_name<-names(gene_df)[i]
+  genes<-gene_df[[module_name]]
+  genes<-genes$hgnc_symbol
+  em_ER_BP<-enrichGO(genes, 
+                     OrgDb = org.Hs.eg.db, 
+                     ont = "BP",
+                   pAdjustMethod = "BH", 
+                     pvalueCutoff = 0.05,
+                     qvalueCutoff = 0.25, 
+                     keyType = 'SYMBOL')
+  go_terms<-em_ER_BP@result
+  go_terms<-go_terms[go_terms$p.adjust <= 0.05,]
+  go_terms<-go_terms[order(go_terms$Count, decreasing = T),]
+  print(module_name)
+ WGCNA_modules_go_result[[module_name]]<-em_ER_BP@result
+}
+```
+
+### Performing network centrality analysis and network visualization of gene modules from WGCNA
+```{r  generate the TOM matrix for centrality analysis-gse39612, include=TRUE, echo=TRUE, eval=FALSE}
+adjMatrix <- adjacency(t(MCC_expression_data), power = 16, type = "signed")
+TOM = TOMsimilarity(adjMatrix)
+```
+
+```{r centrality analysis-gse39612, include=TRUE, echo=TRUE, fig.width=14, fig.height=20}
+TOM = readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/gse39612/GSE39612_WGCNA_TOM.rds")
+probes = colnames(t(MCC_expression_data))
+dimnames(TOM)<-list(probes, probes)
+
+# 1.Selecting top hub genes from each gene module
+network_hub_list<-list()
+nTOM = 40 #top nodes from the WGCNA network
+for (i in 1:length(gene_df)){
+  module<-names(gene_df)[i]
+  genes<-gene_df[[module]][,"hgnc_symbol"]
+  m<-TOM[genes, genes]
+  hubs<-names(sort(rowSums(m), decreasing = T)[1:nTOM])
+  hubs<-na.omit(hubs)
+  network_hub_list[[module]]<-hubs
+}
+
+network_hub_list # The top 40 hubs in each module
+
+# 2. Generating adjacency matrix for hub genes from all modules
+hub_genes<-unname(unlist(network_hub_list))
+hubs_m<-TOM[hub_genes, hub_genes]
+edges<-data.frame(from=rownames(hubs_m)[row(hubs_m)[upper.tri(hubs_m)]], 
+           to=colnames(hubs_m)[col(hubs_m)[upper.tri(hubs_m)]], 
+           value=hubs_m[upper.tri(hubs_m)])
+
+# 3. Setting up thredshold for selecting leading edges in the network
+leading_edges_ratio = 0.20 #top 1/5 edges based on edge weight.
+threshold = quantile(edges$value, probs=1-leading_edges_ratio , na.rm = FALSE)
+edges<-edges[edges$value >= threshold,]
+
+# 4. Organizing vertices data frame and edges data frame for the network
+vertices<-data.frame()
+for(i in 1:length(network_hub_list)){
+  module_name<-names(network_hub_list)[i]
+  v<-data.frame(name = network_hub_list[[i]], module = rep(module_name, nTOM), size = rep(8, nTOM))
+  vertices<-rbind(vertices, v)
+}
+
+vertices[,"group"]<-unlist(lapply(vertices$module, function(x) strsplit(x, "_")[[1]][2]))
+vertices[,"id"]<-rownames(vertices)
+
+
+# 5. Centrality analysis of hub genes co-expression network
+g<-graph_from_data_frame(edges, directed = F, vertices)
+eigenvector<-eigen_centrality(g)$vector
+betweenness<-betweenness(g)
+degree<-degree(g)
+closeness<-closeness(g)
+centralities <- cbind(degree, eigenvector, betweenness, closeness)
+centrality_df<-cbind(centralities, vertices$module)
+
+DT::datatable(centrality_df) #show centrality data of nodes for sorting
+
+# 6. Visualize the hub genes co-expression network
+edges[,"source"]<-vertices[match(edges$from, vertices$name), "id"]
+edges[,"target"]<-vertices[match(edges$to, vertices$name), "id"]
+edges$source<-as.numeric(edges$source)
+edges$target<-as.numeric(edges$target)
+
+edges<-data.frame(source = edges$source-1, target = edges$target-1, value = edges$value)
+vertices<-cbind(vertices, centralities)
+vertices[,"betweenness_sqrt"]<-sqrt(unlist(vertices$betweenness))
+
+fn<-forceNetwork(Links = edges, Nodes = vertices,
+                 Source = "source", Target = "target",
+                 Nodesize = "betweenness_sqrt", fontSize = 12,
+                 Value = "value", NodeID = "name",
+                 Group = "group", opacity = 1,
+                 legend = T, charge = -20, zoom = F,
+                 opacityNoHover = 1,
+                 linkWidth = JS("function(d) { return Math.cbrt(d.value)*0.4; }")
+                 )
+fn
+```
+
+### Plotting the gene modules that closely co-expressed in MCC tumor samples
+```{r visualize the closely co-expressed gene modules (3/6/5), include=TRUE, echo =TRUE, fig.width=25, fig.height=13}
+theme<-theme(panel.background = element_blank(),
+             panel.border=element_rect(fill=NA),
+             panel.grid.major = element_blank(),
+             panel.grid.minor = element_blank(),
+             strip.background=element_blank(),
+             axis.text.x=element_text(colour="black"),
+             axis.text.y=element_text(colour="black"),
+             axis.ticks=element_line(colour="black"),
+             plot.margin=unit(c(1,1,1,1),"line"),
+             axis.title.x = element_text(color="black", size=18, face="bold"),
+             axis.title.y = element_text(color="black", size=18, face="bold"),
+             axis.text = element_text(size = 12, face = "bold"))
+
+n = 25
+em_m3_BP<-enrichGO(gene_df$Module_3$hgnc_symbol, 
+                     OrgDb = org.Hs.eg.db, 
+                     ont = "BP",
+                     pAdjustMethod = "BH", 
+                     pvalueCutoff = 0.05,
+                     qvalueCutoff = 0.25, 
+                     keyType = 'SYMBOL')
+m3_BP<-em_m3_BP@result[order(em_m3_BP@result$Count, decreasing = T),][1:n,]
+pm3<-ggplot(m3_BP, aes(x=Count, y=factor(Description, levels = rev(c(m3_BP$Description))), size = Count, color = p.adjust))+
+      geom_point() +
+      ylab("Enriched GO Terms in module 3")+
+      scale_colour_gradient(low = "#F16913", high = "#FDD0A2") +
+      scale_fill_gradient(low = "#F16913", high = "#FDD0A2") +
+      scale_y_discrete(labels = function(x) str_wrap(x, width = 40))+
+      theme_set(theme_bw() +
+      theme(legend.position = "right"))+
+      theme
+
+em_m5_BP<-enrichGO(gene_df$Module_5$hgnc_symbol, 
+                     OrgDb = org.Hs.eg.db, 
+                     ont = "BP",
+                     pAdjustMethod = "BH", 
+                     pvalueCutoff = 0.05,
+                     qvalueCutoff = 0.25, 
+                     keyType = 'SYMBOL')
+m5_BP<-em_m5_BP@result[order(em_m5_BP@result$Count, decreasing = T),][1:n,]
+pm5<-ggplot(m5_BP, aes(x=Count, y=factor(Description, levels = rev(c(m5_BP$Description))), size = Count, color = p.adjust))+
+      geom_point() +
+      ylab("Enriched GO Terms in module 5")+
+      scale_colour_gradient(low = "#238B45", high = "#A1D99B") +
+      scale_fill_gradient(low = "#238B45", high = "#A1D99B") +
+      scale_y_discrete(labels = function(x) str_wrap(x, width = 40))+
+      theme_set(theme_bw() +
+      theme(legend.position = "right"))+
+      theme
+
+em_m6_BP<-enrichGO(gene_df$Module_6$hgnc_symbol, 
+                     OrgDb = org.Hs.eg.db, 
+                     ont = "BP",
+                     pAdjustMethod = "BH", 
+                     pvalueCutoff = 0.05,
+                     qvalueCutoff = 0.25, 
+                     keyType = 'SYMBOL')
+m6_BP<-em_m6_BP@result[order(em_m6_BP@result$Count, decreasing = T),][1:n,]
+pm6<-ggplot(m6_BP, aes(x=Count, y=factor(Description, levels = rev(c(m6_BP$Description))), size = Count, color = p.adjust))+
+      geom_point() +
+      ylab("Enriched GO Terms in module 6")+
+      scale_colour_gradient(low = "#74C476", high = "#E5F5E0") +
+      scale_fill_gradient(low = "#74C476", high = "#E5F5E0") +
+      scale_y_discrete(labels = function(x) str_wrap(x, width = 40))+
+      theme_set(theme_bw() +
+      theme(legend.position = "right"))+
+      theme
+
+WGCNA_module_GO_terms_plot<-ggarrange(pm3, pm5, pm6,
+              ncol = 3,
+              nrow = 1
+) 
+WGCNA_module_GO_terms_plot
+```
+
+```{r clean environment3, include=FALSE, echo = F}
+rm(list = ls())
+gc()
+```
+
+# IMR90 dynamic analysis of GOIs
+
+## Importing and organizing normalized IMR90 gene expression data 
+
+```{r import IMR90 expression data-for dynamic analysis in IMR90 ER, include = T, echo = T, warning=FALSE, message=FALSE}
+IMR90_edat<-readRDS("/xdisk/mpadi/jiawenyang/data/merkel_cell/pp_in_mcc_paper/imr90_wgcna/IMR90_edat.RDS")
+```
+
+### Taking mean expression value per condition per time point 
+
+```{r, include=TRUE, eval = T,echo=TRUE, warning=FALSE,message=FALSE}
+IMR90_ER<-IMR90_edat[, grep("ER", colnames(IMR90_edat))]
+IMR90_GFP<-IMR90_edat[, grep("GFP", colnames(IMR90_edat))]
+
+ER_time_point<-c("ER_0", "ER_4", "ER_8", 
+                 "ER_12", "ER_16", "ER_20", 
+                 "ER_24", "ER_32", "ER_40", 
+                 "ER_48")
+GFP_time_point<-c("GFP_0", "GFP_4", "GFP_8", 
+                  "GFP_12", "GFP_16", "GFP_20", 
+                  "GFP_24", "GFP_32", "GFP_40", 
+                  "GFP_48")
+
+IMR90_ER_mean<-data.frame(genes = rownames(IMR90_ER))
+for (i in 1:length(ER_time_point)){
+  time_point<-ER_time_point[i]
+  sub_df<-as.data.frame(IMR90_ER[, grep(time_point, colnames(IMR90_ER))])
+  sub_df[,"mean"]<-apply(sub_df, 1, mean)
+  df_mean<-as.data.frame(sub_df[, "mean"])
+  colnames(df_mean)<-time_point
+  IMR90_ER_mean<-cbind(IMR90_ER_mean, df_mean)
+}
+
+IMR90_GFP_mean<-data.frame(genes = rownames(IMR90_GFP))
+for (i in 1:length(GFP_time_point)){
+  time_point<-GFP_time_point[i]
+  sub_df<-as.data.frame(IMR90_GFP[, grep(time_point, colnames(IMR90_GFP))])
+  sub_df[,"mean"]<-apply(sub_df, 1, mean)
+  df_mean<-as.data.frame(sub_df[, "mean"])
+  colnames(df_mean)<-time_point
+  IMR90_GFP_mean<-cbind(IMR90_GFP_mean, df_mean)
+}
+
+IMR90_ER_mean_matrix<-as.matrix(IMR90_ER_mean[, 2:11])
+IMR90_GFP_mean_matrix<-as.matrix(IMR90_GFP_mean[, 2:11])
+
+IMR90_ER_GFP_DELTA<-IMR90_ER_mean_matrix-IMR90_GFP_mean_matrix
+
+IMR90_ER_GFP_DELTA<-as.data.frame(IMR90_ER_GFP_DELTA)
+rownames(IMR90_ER_GFP_DELTA)<-IMR90_ER_mean$genes
+```
+
+### Adjusting gene expression value of ER samples by substracting the value of GFP samples at the same time point
+
+```{r, include=TRUE,eval=T, echo=TRUE}
+IMR90_ER_GFP_DELTA_df<-reshape2::melt(as.matrix(IMR90_ER_GFP_DELTA))
+colnames(IMR90_ER_GFP_DELTA_df)<-c("genes", "time", "ER-GFP")
+IMR90_ER_GFP_DELTA_df$time<-unlist(lapply(as.character(IMR90_ER_GFP_DELTA_df$time), function(x) strsplit(x, "_")[[1]][2]))
+IMR90_ER_GFP_DELTA_df$time<-as.numeric(IMR90_ER_GFP_DELTA_df$time)
+IMR90_ER_GFP_DELTA_df$`ER-GFP`<-as.numeric(IMR90_ER_GFP_DELTA_df$`ER-GFP`)
+```
+
+### Performing DEGs analysis for ER vs. GFP at 48 hours 
+
+```{r DEGs_48h_ER_GFP-dynamic analysis in IMR90 ER, include=TRUE}
+group_48h_DEGs<-factor(c(rep("GFP_48",3), rep("ER_48",3)), levels = c("GFP_48", "ER_48"))
+design<-model.matrix(~0 + group_48h_DEGs)
+IMR90_48h_ER_GFP<-IMR90_edat[,c(grep("GFP_48",colnames(IMR90_edat)), grep("ER_48", colnames(IMR90_edat)))]
+comparison = "group_48h_DEGsER_48 - group_48h_DEGsGFP_48"
+cont=makeContrasts(comparison,levels=design)
+fit=lmFit(IMR90_48h_ER_GFP,design)
+vfit=contrasts.fit(fit,contrasts=cont)
+efit<- eBayes(vfit)
+DEGs_48h<-topTreat(efit, sort.by = "P", n = Inf)
+```
+
+### Plotting the gene markers for MCC and neuroendocrine tumors in ER 48 hours samples
+
+```{r, include=TRUE, echo=TRUE, eval =T}
+# gene markers
+neuroendocrine_markers<-c("ENO2", "NEFM", "NEFH", "NMB", "HES6")
+neural_genes<-c("EFNB1","SEMA4D", "SLIT2")
+keratin_markers<-c("KRT8", "KRT18")
+wnt_down_gene_list<-c("WNT5A","WNT5B", "FZD2", "FZD7","FZD8", "WNT16", "TCF7L2")
+wnt_up_gene_list<-c("WNT3", "TCF7","TCF3","WNT9A","FZD9", "LEF1")
+
+# graph settings
+theme<-theme(panel.background = element_blank(),
+             panel.border=element_rect(fill=NA),
+             panel.grid.major = element_blank(),
+             panel.grid.minor = element_blank(),
+             strip.background=element_blank(),
+             axis.text.x=element_text(colour="black"),
+             axis.text.y=element_text(colour="black"),
+             axis.ticks=element_line(colour="black"),
+             plot.margin=unit(c(1,1,1,1),"line"),
+             legend.title = element_text(face = "bold"),
+             legend.text = element_text(face = "bold"),
+             axis.title.x = element_text(color="black", size=18, face="bold"),
+             axis.title.y = element_text(color="black", size=18, face="bold"),
+             axis.text = element_text(size = 12, face = "bold"))
+```
+
+```{r plotting bar plot for gene markers in ER samples, echo = T, include = T, fig.width=10, fig.height=8}
+FC_df<-rbind(data.frame(genes =neuroendocrine_markers,logFC = DEGs_48h[neuroendocrine_markers,"logFC"],  makers = rep("neuroendocrine_markers", n = length(neuroendocrine_markers))),
+             data.frame(genes =neural_genes, logFC = DEGs_48h[neural_genes,"logFC"], makers = rep("neural_genes", n = length(neural_genes))),
+             data.frame(genes =keratin_markers, logFC = DEGs_48h[keratin_markers, "logFC"], makers = rep("keratin_markers", n = length(keratin_markers))))
+
+# Bar plot to show the FC of ER vs.GFP at 48 hrs 
+pdf(file = "/xdisk/mpadi/jiawenyang/result/pp_in_merk")
+p<-ggplot(FC_df, aes(x=factor(genes, levels = genes), y=2^(logFC), fill=factor(makers, levels = c("neuroendocrine_markers", "neural_genes", "keratin_markers")))) +
+   geom_bar(stat="identity")+
+   guides(fill=guide_legend(title="Gene categories")) +
+   xlab("")+
+   ylab("Fold Change ER vs.GFP at 48 hrs") +
+   geom_hline(yintercept = 1, color = "red", linetype = "twodash") +
+   theme(legend.position="bottom")+
+   theme
+p
+
+# Display the statistic data from DEGs anaylsis for 48 hrs ER and GFP samples 
+DT::datatable(DEGs_48h[c(neuroendocrine_markers, neural_genes, keratin_markers),])
+```
+### Plotting the MCC marker genes expression dynamic pattern in ER samples (adjusted by GFP)
+
+```{r, include=TRUE, echo=TRUE, eval =T,fig.height=10, fig.width=16,warning=FALSE,message=FALSE}
+# dynamic expression pattern of MCC markers 
+NE_markers<-c("SEMA4D","NEFM","NEFH","SLIT2","HES6","EFNB1","ENO2","NMB","KRT8","KRT18")
+NE_markers1<-c("SEMA4D", "NEFM", "NEFH", "SLIT2","HES6")
+NE_markers2<-c("EFNB1", "ENO2","NMB","KRT8", "KRT18")
+
+target_genes_df<-IMR90_edat[NE_markers,]
+target_genes_df<-na.omit(target_genes_df)
+
+df_target<-matrix(nrow = 110, ncol = 3)
+df_target_sum<-c()
+for (i in 1: length(rownames(target_genes_df))) {
+  k<-rownames(target_genes_df)[i]
+  df_target[,1]<-rep(k, 110)
+  df_target[,2]<-as.character(target_genes_df[k,])
+  df_target[,3]<-colnames(target_genes_df)
+  df_target_sum<-rbind(df_target_sum, df_target)
+}
+
+#df_target_sum
+time<-unlist(lapply(df_target_sum[,3], function(x) strsplit(x,"_")[[1]][2]))
+repeats<-unlist(lapply(df_target_sum[,3], function(x) strsplit(x,"_")[[1]][3]))
+df_target_sum<-Reduce(cbind, list(df_target_sum, time, repeats))
+colnames(df_target_sum)<-c("genes","value","group","time","repeats")
+df_target_sum<-as.data.frame(df_target_sum)
+df_target_sum$value<-as.character(df_target_sum$value)
+df_target_sum$time<-as.character(df_target_sum$time)
+
+#Seperate data into groups
+df_target_GFP<-df_target_sum[grep("GFP", df_target_sum[, "group"]),]
+df_target_ER<-df_target_sum[grep("ER", df_target_sum[, "group"]),]
+
+#GFP
+df_target_GFP_plot<-data.frame()
+df_target_GFP_plot_sum<-data.frame()
+for (i in 1:length(unique(df_target_GFP[,"genes"]))){
+  k<-unique(df_target_GFP[,"genes"])[i]
+  for (j in unique(df_target_GFP$time)){
+    df<-df_target_GFP %>% filter(genes == k, time == j)
+    df_target_GFP_plot<-data.frame(genes = k, time = j, mean = mean(as.numeric(df$value)))
+    df_target_GFP_plot_sum<-rbind(df_target_GFP_plot_sum, df_target_GFP_plot)
+  }
+}   
+
+#ER
+df_target_ER_plot<-data.frame()
+df_target_ER_plot_sum<-data.frame()
+for (i in 1:length(unique(df_target_ER$genes))){
+  k<-unique(df_target_ER$genes)[i]
+  for (j in unique(df_target_ER$time)){
+    df<-df_target_ER %>% filter(genes == k, time == j)
+    df_target_ER_plot<-data.frame(genes = k, time = j, mean = mean(as.numeric(df$value)))
+    df_target_ER_plot_sum<-rbind(df_target_ER_plot_sum, df_target_ER_plot)
+  }
+}   
+
+#foldchange to GFP at the same time point
+df_target_ER_plot_sum$"foldchange"<-2^(as.numeric(df_target_ER_plot_sum$mean)-as.numeric(df_target_GFP_plot_sum$mean))
+#log2FC to GFP at the same time point
+df_target_ER_plot_sum$"log2_expression_value"<-as.numeric(df_target_ER_plot_sum$mean)-as.numeric(df_target_GFP_plot_sum$mean)
+
+
+df_er_neuroendocrine_marker_up<-df_target_ER_plot_sum[which(df_target_ER_plot_sum$genes %in% NE_markers1),]
+er_neuromarker_up <- ggplot(df_er_neuroendocrine_marker_up, aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)),y=log2_expression_value,colour=genes,group=genes,fill=genes)) +
+  geom_line(size =1.2)+
+  geom_point(size=1.8)+
+  theme_classic()+
+  scale_linetype_manual(values=c("twodash"))+
+  geom_dl(aes(label = genes), method = list(dl.trans(x = x + 0.10), "last.points", cex = 1))+
+  theme(text=element_text(size=25, face = "bold"))+
+  ylim(0,4)+
+  labs(x = 'time', y = "log2FC to GFP at the same time point",title = 'Neuroendocrine tumors marker genes expression fold changes \n to GFP condition in IMR90 cell with oncogenic ER antigen')
+er_neuromarker_up
+
+
+df_er_neuroendocrine_marker_flat<-df_target_ER_plot_sum[which(df_target_ER_plot_sum$genes %in% NE_markers2),]
+er_neuromarker_flat <- ggplot(df_er_neuroendocrine_marker_flat, aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)),y=log2_expression_value,colour=genes,group=genes,fill=genes)) +
+  geom_line(size =1.2)+
+  geom_point(size=1.8)+
+  theme_classic()+
+  scale_linetype_manual(values=c("twodash"))+
+  geom_dl(aes(label = genes), method = list(dl.trans(x = x + 0.10), "last.points", cex = 1))+
+  theme(text=element_text(size=25, face = "bold"))+
+  ylim(0,4)+
+  labs(x = 'time', y = "log2FC to GFP at the same time point",title = 'Neuroendocrine tumors marker genes expression fold changes \n to GFP condition in IMR90 cell with oncogenic ER antigen')
+er_neuromarker_flat
+```
+
+
+
+### Plotting the WNT genes expression dynamic pattern in ER samples (adjusted by GFP)
+
+```{r, include=TRUE, echo=TRUE, eval =T,fig.height=10, fig.width=16,warning=FALSE,message=FALSE}
+# dynamic expression pattern of GOIs 
+p_up<-ggplot(IMR90_ER_GFP_DELTA_df[IMR90_ER_GFP_DELTA_df$genes %in% wnt_up_gene_list, ], 
+       aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)),
+           y=`ER-GFP`, fill = genes, colour = genes, group = genes)) +
+  geom_line(size =0.5)+
+  geom_point(size=1.5)+
+  geom_dl(aes(label = genes), method = list(dl.trans(x = x + 0.15), "last.points", cex = 0.7, face = "bold"))+
+  ylim(-3, 2)+
+  labs(x = 'time', y = "Relative gene expression level to control at the same time point")+
+  theme(plot.title = element_text(size = 12, face = "bold"),
+    legend.title=element_text(size=15), 
+    legend.text=element_text(size=12))
+p_up<-p_up+theme
+
+p_down<-ggplot(IMR90_ER_GFP_DELTA_df[IMR90_ER_GFP_DELTA_df$genes %in% wnt_down_gene_list, ], 
+       aes(x=factor(time, levels = c(0,4,8,12,16,20,24,32,40,48)),
+           y=`ER-GFP`, fill = genes, colour = genes, group = genes)) +
+  geom_line(size =0.5)+
+  geom_point(size=1.5)+
+  geom_dl(aes(label = genes), method = list(dl.trans(x = x + 0.15), "last.points", cex = 0.7, face = "bold"))+
+  ylim(-3, 2)+
+  labs(x = 'time', y = "Relative gene expression level to control at the same time point")+
+  theme(plot.title = element_text(size = 12, face = "bold"),
+    legend.title=element_text(size=15), 
+    legend.text=element_text(size=12))
+p_down<-p_down+theme
+
+IMR90_WNT_genes_plot<-ggarrange(p_up, p_down,
+              ncol = 2,
+              nrow = 1
+) 
+IMR90_WNT_genes_plot
+```
+
+## The dynamic pattern of gene-gene correlation in ER and GFP samples
+
+### Performing pearson correlation on GOIs in different conditions
+
+```{r gene-gene correlation by performing pearson correlation, include=TRUE, echo =TRUE}
+pc.test<-function(pc, ...){
+  pc<-as.matrix(pc)
+  n<-ncol(pc)
+  p.pc<-matrix(NA, n, n)
+  diag(p.pc)<-0
+  for (i in 1:(n-1)){
+    for (j in (i + 1):n){
+      tmp <- cor.test(pc[,i], pc[,j], ...)
+      p.pc[i,j]<-p.pc[j,i]<-tmp$p.value
+    }
+  }
+  colnames(p.pc) <- rownames(p.pc) <-colnames(pc)
+  p.pc
+}
+
+pearson_cor_matrix<-function(condition, time_period){
+  sample<-paste0(condition,"_",time_period)
+  matrix<-edat[[sample]]
+  result<-list()
+  pc<-cor(as.matrix(t(matrix)), method = "pearson")
+  sig<-pc.test(pc)
+  result[["pc"]]<-pc
+  result[["pc.pvalue"]]<-sig
+  col<- colorRampPalette(c("blue", "white", "red"))(20)
+  p_cor<-corrplot(pc, type="lower", method = "circle", order = "original", col = col,
+           p.mat = sig, 
+           sig.level = 0.05, 
+           insig = "pch",
+           pch.cex = 1.5,
+           tl.col = "black",
+           tl.cex = 1.5,
+           number.cex = 7/ncol(pc),
+           cl.cex = nrow(pc)*10/400)
+  return(p_cor)
+}
+```
+
+```{r}
+wnt_genes<-c("WNT3","WNT5B", "WNT9A", "FZD2", "FZD8", "FZD9", "LRP5", "TCF7", "TCF7L1", "WNT5A", "WNT16","FZD7", "FZD6", "FZD4", "FZD1", "LRP6","TCF7L2") #TCF3 shows similar pattern to TCF7L1, TCF4 shows similar pattern to TCF7L2
+hippo_genes<-c("YAP1", "WWTR1", "LATS1", "LATS2")
+
+IMR90_edat_MCC_wnt<-IMR90_edat[c(wnt_genes, hippo_genes, neuroendocrine_markers, neural_genes, keratin_markers), ]
+IMR90_edat_MCC_wnt<-na.omit(IMR90_edat_MCC_wnt)
+
+colnames(IMR90_edat_MCC_wnt)<-unlist(lapply(colnames(IMR90_edat_MCC_wnt), function(x) substring(x, 1, nchar(x)-2)))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_48", "_t5",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_40", "_t5",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_32", "_t4",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_24", "_t4",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_20", "_t3",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_16", "_t3",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_12", "_t2",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_8", "_t2",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_4", "_t1",colnames(IMR90_edat_MCC_wnt))
+colnames(IMR90_edat_MCC_wnt)<-gsub("_0", "_t1",colnames(IMR90_edat_MCC_wnt))
+
+conditions<-c("ER","GFP")
+time_points<-c("t1", "t2","t3","t4","t5")
+
+edat<-list()
+for (i in 1:length(time_points)){
+  time<-paste0("_",time_points[i])
+  for (j in 1:length(conditions)){
+    condition<-conditions[j]
+    samples<-paste0(condition, time)
+    df<-IMR90_edat_MCC_wnt[,which(colnames(IMR90_edat_MCC_wnt) == samples)]
+    rownames(df)[which(rownames(df) %in% wnt_genes)]<-paste0(rownames(df)[which(rownames(df) %in% wnt_genes)], "_wnt")
+    rownames(df)[which(rownames(df) %in% neural_genes)]<-paste0(rownames(df)[which(rownames(df) %in% neural_genes)], "_neural")
+    rownames(df)[which(rownames(df) %in% hippo_genes)]<-paste0(rownames(df)[which(rownames(df) %in% hippo_genes)], "_hippo")
+    rownames(df)[which(rownames(df) %in% keratin_markers)]<-paste0(rownames(df)[which(rownames(df) %in% keratin_markers)], "_keratin")
+    rownames(df)[which(rownames(df) %in% neuroendocrine_markers)]<-paste0(rownames(df)[which(rownames(df) %in% neuroendocrine_markers)], "_NEmarker")
+    edat[[samples]]<-df
+  }
+}
+```
+
+### plotting correlation results of ER samples (left to right: t1, t2, t3, t4, t5)
+
+```{r, include = T, echo = T, fig.height=7, fig.width=30}
+par(mfrow = c(1,5))
+condition = "ER"
+  for (j in 1:length(time_points)){
+    time_period<-time_points[j]
+    sample_name<-paste0(condition, "_",time_period)
+    p_cor<-pearson_cor_matrix(condition, time_period)
+    assign(paste0(condition,"_",time_period), p_cor)
+  }
+```
+
+### plotting correlation results of GFP samples (left to right: t1, t2, t3, t4, t5)
+
+```{r, include = T, echo = T, fig.height=7, fig.width=30}
+par(mfrow = c(1,5))
+condition = "GFP"
+  for (j in 1:length(time_points)){
+    time_period<-time_points[j]
+    sample_name<-paste0(condition, "_",time_period)
+    p_cor<-pearson_cor_matrix(condition, time_period)
+    assign(paste0(condition,"_",time_period), p_cor)
+  }
+```
+```{r load_packages, message=FALSE, warning=FALSE, include=FALSE} 
+library(fontawesome)
+```  
+back to top [`r fa("arrow-circle-up", fill = "steelblue")`](#)
+
+**_[back to home]("/pyrvinium_in_MCC/index.html")_**

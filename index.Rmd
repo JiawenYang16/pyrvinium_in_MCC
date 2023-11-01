@@ -1,0 +1,88 @@
+---
+title: "Integrative analysis reveals therapeutic potential of pyrviniym pamoate in Merkel cell carcinoma"
+author: 
+    -  "Jiawen Yang"
+    -  "James Lim"
+    -  "Paul Victor"
+    -  "Chen Chen"
+    -  "Hunain Khwaja"
+    -  "Rick Schnellmann"
+    -  "Denise Roe"
+    -  "Prafulla Gokhale"
+    -  "James DeCaprio"
+    -  "Megha Padi (corresponding author)"
+date: "2023-10-31"
+discritpion: "The analysis report for the Merkel cell carcinoma and pyrvinium pamoate project"
+output: 
+  rmdformats::readthedown
+---
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 12px;
+  }
+td {  /* Table  */
+  font-size: 12px;
+}
+h1.title {
+  font-size: 32px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 24px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 20px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 12px;
+}
+</style>
+---
+
+This report aims to provide readers comprehensive details on methodology employed in this project. For more extensive interpretation within the biological context, please refer to the forthcoming formal manuscript.
+
+ <br>
+ <br>
+ <br>
+
+
+<div id="hello" class="greeting message" style="color: black; background-color: #FBEEE6; padding: 20px;">
+
+**Table of Contents**
+
+- [Network analysis reveals WNT signaling pathway dynamics in IMR90 and MCC tumor samples](/pyrvinium_in_MCC/doc/pyrvinium_pamoate_treated_MCC_analysis.html)
+<br>
+<br>
+<br>
+- [MCC signature genes (MCC1000) are reversed by WNT perturbagen in LINCS L1000 dataset](/pyrvinium_in_MCC/doc/pyrvinium_pamoate_treated_MCC_analysis.html)
+<br>
+<br>
+<br>
+- [Pyrvinium pamoate, one of the WNT perturbagens, effectively reverses the MCC signature](/pyrvinium_in_MCC/doc/pyrvinium_pamoate_treated_MCC_analysis.html)
+</div>
+
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+library(lubridate)
+```
+
+ <br>
+ <br>
+ <br>
+ <br>
+
+last updated on 11-01-2023
+by [Jiawen Yang](mailto:jiawenyang@arizona.edu) 
+
+Contact [Dr.Megha Padi](mailto:mpadi@arizona.edu) for more information and potential research interests  
