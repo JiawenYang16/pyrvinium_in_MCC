@@ -49,9 +49,9 @@ pre { /* Code block - determines code spacing between lines */
 }
 </style>
 ---
-**_[back to home]("/pyrvinium_in_MCC/index.html")_**
+**_[back to home](/pyrvinium_in_MCC/index.html)_**
 
-# IMR90 WGCNA analysis
+# IMR90 WGCNA analysisls
 
 ```{r, load libraries, including=F, echo=T, warning=FALSE,message=FALSE}
 library(limma)
@@ -1957,4 +1957,4 @@ library(fontawesome)
 ```  
 back to top [`r fa("arrow-circle-up", fill = "steelblue")`](#)
 
-**_[back to home]("/pyrvinium_in_MCC/index.html")_**
+**_[back to home](/pyrvinium_in_MCC/index.html)_**

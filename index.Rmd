@@ -65,11 +65,11 @@ This report aims to provide readers comprehensive details on methodology employe
 <br>
 <br>
 <br>
-- [MCC signature genes (MCC1000) are reversed by WNT perturbagen in LINCS L1000 dataset](/pyrvinium_in_MCC/doc/pyrvinium_pamoate_treated_MCC_analysis.html)
+- [MCC signature genes (MCC1000) are reversed by WNT perturbagen in LINCS L1000 dataset](/pyrvinium_in_MCC/bin/pyrvinium_pamoate_treated_MCC_analysis.html)
 <br>
 <br>
 <br>
-- [Pyrvinium pamoate, one of the WNT perturbagens, effectively reverses the MCC signature](/pyrvinium_in_MCC/doc/pyrvinium_pamoate_treated_MCC_analysis.html)
+- [Pyrvinium pamoate, one of the WNT perturbagens, effectively reverses the MCC signature](/pyrvinium_in_MCC/bin/pyrvinium_pamoate_treated_MCC_analysis.html)
 </div>
 
 
