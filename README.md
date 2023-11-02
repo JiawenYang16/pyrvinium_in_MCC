@@ -3,7 +3,7 @@ For the comprehensive details on methodology used in "Integrative analysis revea
 [Analysis Report](https://jiawenyang16.github.io/pyrvinium_in_MCC/)
 
 
- Raw sequencing data available on GEO (not publically available yet):
+ Raw sequencing data available on GEO (not publicaly available yet):
 
  **GSE130639** <br />
  **GSE229701**
